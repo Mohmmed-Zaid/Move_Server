@@ -1,0 +1,86 @@
+HELP.md
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### Application Configuration Files with Secrets ###
+src/main/resources/application.yaml
+src/main/resources/application.yml
+src/main/resources/application-local.yaml
+src/main/resources/application-local.yml
+src/main/resources/application-dev.yaml
+src/main/resources/application-dev.yml
+src/main/resources/application-prod.yaml
+src/main/resources/application-prod.yml
+src/main/resources/application-staging.yaml
+src/main/resources/application-staging.yml
+
+### Environment Files ###
+.env
+.env.local
+.env.dev
+.env.prod
+.env.staging
+.env.*.local
+*.env
+
+### Security Files ###
+secrets/
+*.key
+*.pem
+*.p12
+*.jks
+keystore.jks
+truststore.jks
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+### Database Files ###
+*.db
+*.sqlite
+*.sqlite3
+
+### Log Files ###
+*.log
+logs/
+
+### Temporary Files ###
+*.tmp
+*.temp
+*~
+
+### OS Generated Files ###
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
