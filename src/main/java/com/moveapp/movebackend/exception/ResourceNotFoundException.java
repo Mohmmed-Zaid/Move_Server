@@ -1,14 +1,12 @@
 package com.moveapp.movebackend.exception;
 
-import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.ResponseStatus;
+public class ResourceNotFoundException extends RuntimeException {
 
-@ResponseStatus(value = HttpStatus.NOT_FOUND)
-public class ResourceNotFoundException extends RuntimeException{
-
-    public ResourceNotFoundException(String messange){
-        super(messange);
+    public ResourceNotFoundException(String message) {
+        super(message);
     }
 
-
+    public ResourceNotFoundException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }

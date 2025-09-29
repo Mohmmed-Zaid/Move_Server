@@ -1,8 +1,5 @@
 package com.moveapp.movebackend.security;
 
-import com.moveapp.movebackend.oauth.CustomOAuth2UserService;
-import com.moveapp.movebackend.oauth.OAuth2AuthenticationFailureHandler;
-import com.moveapp.movebackend.oauth.OAuth2AuthenticationSuccessHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
@@ -38,10 +35,6 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final UserDetailsService userDetailsService;
 
-    private final CustomOAuth2UserService oAuth2UserService;
-    private final OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler;
-    private final OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler;
-
     // ================== Beans ==================
 
     @Bean
@@ -70,10 +63,8 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(AbstractHttpConfigurer::disable)
                 .exceptionHandling(exception -> exception.authenticationEntryPoint(jwtAuthenticationEntryPoint))
-                // IMPORTANT: Change session management for OAuth2
                 .sessionManagement(session -> session
-                        .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
-                        .maximumSessions(1))
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         // Public endpoints - ORDER MATTERS! More specific patterns should come first
 
@@ -105,13 +96,6 @@ public class SecurityConfig {
                                 "/api/auth/test",
                                 "/api/auth/refresh",
                                 "/api/auth/signout"
-                        ).permitAll()
-
-                        // OAuth2 endpoints - CRITICAL: These must be public
-                        .requestMatchers(
-                                "/oauth2/**",
-                                "/login/oauth2/**",
-                                "/api/oauth2/**"
                         ).permitAll()
 
                         // Public API endpoints
@@ -156,15 +140,6 @@ public class SecurityConfig {
 
                         // All other endpoints require authentication
                         .anyRequest().authenticated()
-                )
-                // OAuth2 Login Config - FIXED
-                .oauth2Login(oauth2 -> oauth2
-                        .authorizationEndpoint(authz -> authz.baseUri("/oauth2/authorization"))
-                        .redirectionEndpoint(redirection -> redirection.baseUri("/login/oauth2/code/*"))
-                        .userInfoEndpoint(userInfo -> userInfo.userService(oAuth2UserService))
-                        .successHandler(oAuth2AuthenticationSuccessHandler)
-                        .failureHandler(oAuth2AuthenticationFailureHandler)
-                        .permitAll() // IMPORTANT: Allow OAuth2 endpoints
                 );
 
         // Use custom authentication provider + JWT filter
