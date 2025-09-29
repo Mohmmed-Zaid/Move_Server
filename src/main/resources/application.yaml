@@ -1,0 +1,157 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: move-backend
+
+  main:
+    allow-bean-definition-overriding: true
+
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      idle-timeout: 300000
+      connection-timeout: 30000
+      connection-test-query: SELECT 1
+      validation-timeout: 5000
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    database-platform: org.hibernate.dialect.MySQL8Dialect
+    properties:
+      hibernate:
+        format_sql: false
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    protocol: smtp
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+          ssl:
+            trust: smtp.gmail.com
+        debug: false
+
+  jackson:
+    time-zone: UTC
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+    default-property-inclusion: NON_NULL
+
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+cors:
+  allowed-origins:
+    - http://localhost:3000
+    - http://localhost:5173
+    - ${FRONTEND_URL}
+    - ${FRONTEND_URL_2}
+  allowed-methods: [GET, POST, PUT, DELETE, OPTIONS, PATCH]
+  allowed-headers: ["*"]
+  allow-credentials: true
+  max-age: 3600
+
+move:
+  app:
+    name: MapGuide
+    jwtSecret: ${JWT_SECRET}
+    jwtExpirationInMs: 86400000
+    jwtRefreshExpirationInMs: 604800000
+
+  oauth2:
+    authorizedRedirectUri: ${OAUTH2_REDIRECT_URI}
+    cookieExpireSeconds: 180
+
+  otp:
+    expiration-minutes: 5
+    length: 6
+    max-attempts: 3
+    cleanup-interval-minutes: 10
+
+  external:
+    geocoding:
+      maptiler:
+        api-key: ${MAPTILER_API_KEY}
+        base-url: https://api.maptiler.com
+        timeout: 30000
+        retry-attempts: 3
+      enabled: true
+    osm:
+      nominatim-url: https://nominatim.openstreetmap.org
+      timeout: 15000
+      retry-attempts: 2
+    osrm:
+      routing-url: https://router.project-osrm.org
+      timeout: 30000
+      retry-attempts: 3
+    routing:
+      maptiler:
+        api-key: ${MAPTILER_API_KEY}
+        base-url: https://api.maptiler.com
+        timeout: 30000
+        retry-attempts: 3
+        default-profile: driving
+      primary-service: maptiler
+      fallback-service: osrm
+      enabled: true
+
+  rate-limit:
+    enabled: true
+    requests-per-minute: 60
+
+  cache:
+    geocoding-ttl: 3600
+    routing-ttl: 1800
+
+  security:
+    jwt:
+      header: Authorization
+      prefix: Bearer
+
+logging:
+  level:
+    root: INFO
+    com.moveapp.movebackend: INFO
+    org.springframework.web: INFO
+    org.springframework.security: INFO
+    org.springframework.security.oauth2: WARN
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN
+    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: ERROR
+    org.springframework.mail: INFO
+    org.springframework.mail.javamail: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
