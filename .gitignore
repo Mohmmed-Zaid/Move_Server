@@ -4,18 +4,6 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
-### Application Configuration Files with Secrets ###
-src/main/resources/application.yaml
-src/main/resources/application.yml
-src/main/resources/application-local.yaml
-src/main/resources/application-local.yml
-src/main/resources/application-dev.yaml
-src/main/resources/application-dev.yml
-src/main/resources/application-prod.yaml
-src/main/resources/application-prod.yml
-src/main/resources/application-staging.yaml
-src/main/resources/application-staging.yml
-
 ### Environment Files ###
 .env
 .env.local
