@@ -15,7 +15,7 @@ import java.util.Map;
 @RequestMapping("/api/test")
 @RequiredArgsConstructor
 @Slf4j
-@CrossOrigin(origins = {"http://localhost:5173", "move-ui-three.vercel.app"})
+@CrossOrigin(origins = {"http://localhost:5173", "https://move-ui-three.vercel.app"})
 public class TestController {
 
     @GetMapping("/public")

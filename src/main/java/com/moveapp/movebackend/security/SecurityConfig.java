@@ -23,6 +23,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -34,8 +35,6 @@ public class SecurityConfig {
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final UserDetailsService userDetailsService;
-
-    // ================== Beans ==================
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -55,8 +54,6 @@ public class SecurityConfig {
         return config.getAuthenticationManager();
     }
 
-    // ================== Security Filter Chain ==================
-
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
@@ -66,22 +63,18 @@ public class SecurityConfig {
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // Public endpoints - ORDER MATTERS! More specific patterns should come first
-
-                        // OTP endpoints (most specific first)
+                        // OTP endpoints
                         .requestMatchers(
                                 "/api/otp/send",
                                 "/api/otp/verify",
                                 "/api/otp/verify-signup-otp",
                                 "/api/otp/signup-with-otp",
                                 "/api/otp/status/**",
-                                "/api/otp/debug/**"
+                                "/api/otp/debug/**",
+                                "/api/otp/**"
                         ).permitAll()
 
-                        // All OTP endpoints
-                        .requestMatchers("/api/otp/**").permitAll()
-
-                        // Auth endpoints (all public for authentication)
+                        // Auth endpoints
                         .requestMatchers(
                                 "/api/auth/signup",
                                 "/api/auth/signup/**",
@@ -100,11 +93,9 @@ public class SecurityConfig {
 
                         // Public API endpoints
                         .requestMatchers("/api/public/**").permitAll()
-
-                        // Debug endpoints
                         .requestMatchers("/api/debug/**").permitAll()
 
-                        // External service endpoints (public)
+                        // External service endpoints
                         .requestMatchers("/api/geocoding/**").permitAll()
                         .requestMatchers(
                                 "/api/routes/calculate",
@@ -112,25 +103,24 @@ public class SecurityConfig {
                                 "/api/routes/*/favorite",
                                 "/api/routes/*",
                                 "/api/routes/save"
-                        ).permitAll() // Made public for testing - change to authenticated() for production
+                        ).permitAll()
 
-                        // Location endpoints (require authentication)
+                        // Location endpoints
                         .requestMatchers("/api/locations/**").authenticated()
 
-                        // Navigation endpoints (require authentication)
+                        // Navigation endpoints
                         .requestMatchers("/api/navigation/**").authenticated()
 
-                        // Documentation endpoints
+                        // Documentation & health
                         .requestMatchers(
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
-                                "/swagger-ui.html"
+                                "/swagger-ui.html",
+                                "/actuator/health",
+                                "/health"
                         ).permitAll()
 
-                        // Health check endpoints
-                        .requestMatchers("/actuator/health", "/health").permitAll()
-
-                        // Static resources and error pages
+                        // Static resources
                         .requestMatchers(
                                 "/ws/**",
                                 "/error",
@@ -138,49 +128,39 @@ public class SecurityConfig {
                                 "/.well-known/**"
                         ).permitAll()
 
-                        // All other endpoints require authentication
                         .anyRequest().authenticated()
                 );
 
-        // Use custom authentication provider + JWT filter
         http.authenticationProvider(authenticationProvider());
         http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
 
-    // ================== CORS Config ==================
-
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // Allow specific origins (more secure than using "*")
+        // CRITICAL: Add all your frontend URLs here
         configuration.setAllowedOriginPatterns(Arrays.asList(
-                "http://localhost:3000",    // React dev
-                "http://localhost:5173",    // Vite dev
-                "http://localhost:5137",    // Your actual frontend port
-                "http://127.0.0.1:3000",   // Alternative localhost
-                "http://127.0.0.1:5173",   // Alternative localhost
-                "http://127.0.0.1:5137",   // Your actual frontend port
-                "move-ui-three.vercel.app"    // Production domain
+                "http://localhost:3000",
+                "http://localhost:5173",
+                "http://localhost:5137",
+                "http://127.0.0.1:3000",
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:5137",
+                "https://move-ui-three.vercel.app",
+                "https://*.vercel.app"
         ));
 
-        // Allow all HTTP methods that you use
         configuration.setAllowedMethods(Arrays.asList(
                 "GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"
         ));
 
-        // Allow all headers
-        configuration.setAllowedHeaders(Arrays.asList("*"));
-
-        // Allow credentials (important for authentication)
+        configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);
-
-        // Cache preflight requests for 1 hour
         configuration.setMaxAge(3600L);
 
-        // Expose headers that frontend might need
         configuration.setExposedHeaders(Arrays.asList(
                 "Authorization",
                 "Content-Type",

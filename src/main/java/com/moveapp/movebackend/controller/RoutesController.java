@@ -26,7 +26,16 @@ import java.util.Map;
 @RequestMapping("/api/routes")
 @RequiredArgsConstructor
 @Slf4j
-@CrossOrigin(origins = {"http://localhost:5173", "move-ui-three.vercel.app"})
+@CrossOrigin(
+        origins = {
+                "http://localhost:5173",
+                "http://localhost:3000",
+                "https://move-ui-three.vercel.app"
+        },
+        allowedHeaders = "*",
+        allowCredentials = "true",
+        methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.OPTIONS}
+)
 public class RoutesController {
 
     private final RestTemplate restTemplate;
@@ -35,7 +44,6 @@ public class RoutesController {
     @Value("${move.external.osrm.routing-url:https://router.project-osrm.org}")
     private String osrmUrl;
 
-    // Original OSRM route calculation (for external use)
     @PostMapping("/calculate")
     public ResponseEntity<ApiResponse<Map<String, Object>>> calculateRoute(@RequestBody Map<String, Object> routeRequest) {
         try {
@@ -120,11 +128,8 @@ public class RoutesController {
             Authentication authentication) {
         try {
             log.info("Calculating and saving route for user: {}", authentication.getName());
-
             RouteResponse response = userRouteService.calculateRoute(authentication.getName(), routeRequest);
-
             return ResponseEntity.ok(ApiResponse.success(response, "Route calculated and saved successfully"));
-
         } catch (Exception e) {
             log.error("Error calculating and saving route", e);
             return ResponseEntity.status(500)
@@ -138,14 +143,10 @@ public class RoutesController {
             @RequestParam(defaultValue = "10") int size,
             Authentication authentication) {
         try {
-            log.info("Getting user routes for: {} - page: {}, size: {}",
-                    authentication.getName(), page, size);
-
+            log.info("Getting user routes for: {} - page: {}, size: {}", authentication.getName(), page, size);
             Pageable pageable = PageRequest.of(page, size);
             Page<RouteResponse> routes = userRouteService.getUserRoutes(authentication.getName(), pageable);
-
             return ResponseEntity.ok(ApiResponse.success(routes, "User routes retrieved successfully"));
-
         } catch (Exception e) {
             log.error("Error getting user routes for: {}", authentication.getName(), e);
             return ResponseEntity.status(500)
@@ -159,11 +160,8 @@ public class RoutesController {
             Authentication authentication) {
         try {
             log.info("Getting route: {} for user: {}", routeId, authentication.getName());
-
             RouteResponse route = userRouteService.getRoute(routeId, authentication.getName());
-
             return ResponseEntity.ok(ApiResponse.success(route, "Route retrieved successfully"));
-
         } catch (Exception e) {
             log.error("Error getting route: {} for user: {}", routeId, authentication.getName(), e);
             return ResponseEntity.status(500)
@@ -177,11 +175,8 @@ public class RoutesController {
             Authentication authentication) {
         try {
             log.info("Toggling favorite for route: {} by user: {}", routeId, authentication.getName());
-
             RouteResponse response = userRouteService.toggleFavorite(routeId, authentication.getName());
-
             return ResponseEntity.ok(ApiResponse.success(response, "Favorite status updated successfully"));
-
         } catch (Exception e) {
             log.error("Error toggling favorite for route: {} by user: {}", routeId, authentication.getName(), e);
             return ResponseEntity.status(500)
@@ -195,16 +190,12 @@ public class RoutesController {
             Authentication authentication) {
         try {
             log.info("Deleting route: {} by user: {}", routeId, authentication.getName());
-
             userRouteService.deleteRoute(routeId, authentication.getName());
-
             Map<String, Object> response = new HashMap<>();
             response.put("routeId", routeId);
             response.put("deleted", true);
             response.put("message", "Route deleted successfully");
-
             return ResponseEntity.ok(ApiResponse.success(response, "Route deleted successfully"));
-
         } catch (Exception e) {
             log.error("Error deleting route: {} by user: {}", routeId, authentication.getName(), e);
             return ResponseEntity.status(500)
@@ -219,12 +210,9 @@ public class RoutesController {
             Authentication authentication) {
         try {
             log.info("Getting favorite routes for user: {}", authentication.getName());
-
             Pageable pageable = PageRequest.of(page, size);
             Page<RouteResponse> favoriteRoutes = userRouteService.getFavoriteRoutes(authentication.getName(), pageable);
-
             return ResponseEntity.ok(ApiResponse.success(favoriteRoutes, "Favorite routes retrieved successfully"));
-
         } catch (Exception e) {
             log.error("Error getting favorite routes for user: {}", authentication.getName(), e);
             return ResponseEntity.status(500)

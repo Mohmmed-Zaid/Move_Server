@@ -24,7 +24,7 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/otp")
 @RequiredArgsConstructor
 @Slf4j
-@CrossOrigin(origins = {"http://localhost:5173", "move-ui-three.vercel.app"})
+@CrossOrigin(origins = {"http://localhost:5173", "https://move-ui-three.vercel.app"})
 public class OTPController {
 
     private final OTPService otpService;
