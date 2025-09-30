@@ -163,7 +163,7 @@ public class SecurityConfig {
                 "http://127.0.0.1:3000",   // Alternative localhost
                 "http://127.0.0.1:5173",   // Alternative localhost
                 "http://127.0.0.1:5137",   // Your actual frontend port
-                "https://yourdomain.com"    // Production domain
+                "move-ui-three.vercel.app"    // Production domain
         ));
 
         // Allow all HTTP methods that you use

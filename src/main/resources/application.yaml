@@ -4,7 +4,6 @@ server:
 spring:
   application:
     name: move-backend
-
   main:
     allow-bean-definition-overriding: true
 
@@ -68,8 +67,7 @@ cors:
   allowed-origins:
     - http://localhost:3000
     - http://localhost:5173
-    - ${FRONTEND_URL}
-    - ${FRONTEND_URL_2}
+    - https://move-ui-three.vercel.app   # ✅ Added your deployed frontend
   allowed-methods: [GET, POST, PUT, DELETE, OPTIONS, PATCH]
   allowed-headers: ["*"]
   allow-credentials: true
@@ -81,17 +79,14 @@ move:
     jwtSecret: ${JWT_SECRET}
     jwtExpirationInMs: 86400000
     jwtRefreshExpirationInMs: 604800000
-
   oauth2:
     authorizedRedirectUri: ${OAUTH2_REDIRECT_URI}
     cookieExpireSeconds: 180
-
   otp:
     expiration-minutes: 5
     length: 6
     max-attempts: 3
     cleanup-interval-minutes: 10
-
   external:
     geocoding:
       maptiler:
@@ -118,15 +113,12 @@ move:
       primary-service: maptiler
       fallback-service: osrm
       enabled: true
-
   rate-limit:
     enabled: true
     requests-per-minute: 60
-
   cache:
     geocoding-ttl: 3600
     routing-ttl: 1800
-
   security:
     jwt:
       header: Authorization
