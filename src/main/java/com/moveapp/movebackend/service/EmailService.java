@@ -4,13 +4,9 @@ import com.moveapp.movebackend.model.enums.OTPType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import jakarta.mail.MessagingException;
-import jakarta.mail.internet.MimeMessage;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -20,38 +16,19 @@ import java.util.concurrent.TimeoutException;
 @Slf4j
 public class EmailService {
 
-    private final JavaMailSender mailSender;
+    private final SendGridEmailService sendGridEmailService;
 
-    @Value("${spring.mail.username:noreply@moveapp.com}")
-    private String fromEmail;
-
-    @Value("${move.app.name:Move App}")
+    @Value("${move.app.name:MapGuide}")
     private String appName;
 
     @Async("emailTaskExecutor")
     public CompletableFuture<Boolean> sendOtpEmailAsync(String toEmail, String otpCode, OTPType otpType) {
         try {
-            MimeMessage mimeMessage = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-
-            helper.setFrom(fromEmail);
-            helper.setTo(toEmail);
-
             String subject = getOtpEmailSubject(otpType);
             String body = getOtpEmailBody(otpCode, otpType);
-
-            helper.setSubject(subject);
-            helper.setText(body, true);
-
-            mailSender.send(mimeMessage);
-            log.info("OTP email sent successfully to: {}", toEmail);
-            return CompletableFuture.completedFuture(true);
-
-        } catch (MessagingException e) {
-            log.error("Failed to send OTP email to: {}", toEmail, e);
-            return CompletableFuture.completedFuture(false);
+            return sendGridEmailService.sendEmail(toEmail, subject, body);
         } catch (Exception e) {
-            log.error("Unexpected error sending OTP email to: {}", toEmail, e);
+            log.error("Error in sendOtpEmailAsync: {}", e.getMessage());
             return CompletableFuture.completedFuture(false);
         }
     }
@@ -59,11 +36,12 @@ public class EmailService {
     public void sendOtpEmail(String toEmail, String otpCode, OTPType otpType) {
         try {
             CompletableFuture<Boolean> future = sendOtpEmailAsync(toEmail, otpCode, otpType);
-            Boolean result = future.get(5, TimeUnit.SECONDS);
+            Boolean result = future.get(10, TimeUnit.SECONDS);
             
             if (!result) {
                 throw new RuntimeException("Failed to send email");
             }
+            log.info("OTP email sent successfully to: {}", toEmail);
         } catch (TimeoutException e) {
             log.error("Email sending timeout for: {}", toEmail);
             throw new RuntimeException("Email service timeout", e);
@@ -76,29 +54,19 @@ public class EmailService {
     @Async("emailTaskExecutor")
     public CompletableFuture<Boolean> sendWelcomeEmailAsync(String toEmail, String userName) {
         try {
-            MimeMessage mimeMessage = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-
-            helper.setFrom(fromEmail);
-            helper.setTo(toEmail);
-            helper.setSubject("Welcome to " + appName + "!");
-
+            String subject = "Welcome to " + appName + "!";
             String body = buildWelcomeEmailBody(userName);
-            helper.setText(body, true);
-
-            mailSender.send(mimeMessage);
-            log.info("Welcome email sent successfully to: {}", toEmail);
-            return CompletableFuture.completedFuture(true);
-
+            return sendGridEmailService.sendEmail(toEmail, subject, body);
         } catch (Exception e) {
-            log.error("Failed to send welcome email to: {}", toEmail, e);
+            log.error("Error in sendWelcomeEmailAsync: {}", e.getMessage());
             return CompletableFuture.completedFuture(false);
         }
     }
 
     public void sendWelcomeEmail(String toEmail, String userName) {
         try {
-            sendWelcomeEmailAsync(toEmail, userName).get(5, TimeUnit.SECONDS);
+            sendWelcomeEmailAsync(toEmail, userName).get(10, TimeUnit.SECONDS);
+            log.info("Welcome email sent to: {}", toEmail);
         } catch (Exception e) {
             log.error("Failed to send welcome email: {}", e.getMessage());
         }
@@ -107,29 +75,19 @@ public class EmailService {
     @Async("emailTaskExecutor")
     public CompletableFuture<Boolean> sendPasswordResetConfirmationEmailAsync(String toEmail) {
         try {
-            MimeMessage mimeMessage = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-
-            helper.setFrom(fromEmail);
-            helper.setTo(toEmail);
-            helper.setSubject("Password Reset Confirmation");
-
+            String subject = "Password Reset Confirmation";
             String body = buildPasswordResetConfirmationBody();
-            helper.setText(body, true);
-
-            mailSender.send(mimeMessage);
-            log.info("Password reset confirmation email sent to: {}", toEmail);
-            return CompletableFuture.completedFuture(true);
-
+            return sendGridEmailService.sendEmail(toEmail, subject, body);
         } catch (Exception e) {
-            log.error("Failed to send password reset confirmation email to: {}", toEmail, e);
+            log.error("Error in sendPasswordResetConfirmationEmailAsync: {}", e.getMessage());
             return CompletableFuture.completedFuture(false);
         }
     }
 
     public void sendPasswordResetConfirmationEmail(String toEmail) {
         try {
-            sendPasswordResetConfirmationEmailAsync(toEmail).get(5, TimeUnit.SECONDS);
+            sendPasswordResetConfirmationEmailAsync(toEmail).get(10, TimeUnit.SECONDS);
+            log.info("Password reset confirmation sent to: {}", toEmail);
         } catch (Exception e) {
             log.error("Failed to send password reset confirmation: {}", e.getMessage());
         }
@@ -159,18 +117,13 @@ public class EmailService {
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>MapGuide Verification Code</title>
-                <style>
-                    body { font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-                </style>
             </head>
-            <body style="margin: 0; padding: 0; background: #f0f7ff;">
-                <div style="min-height: 100vh; padding: 20px; font-family: 'Inter', sans-serif;">
+            <body style="margin: 0; padding: 0; background: #f0f7ff; font-family: 'Segoe UI', Arial, sans-serif;">
+                <div style="min-height: 100vh; padding: 20px;">
                     <div style="max-width: 600px; margin: 20px auto; background: #ffffff; border-radius: 20px; box-shadow: 0 10px 30px rgba(0, 50, 150, 0.1); overflow: hidden;">
                         
                         <div style="background: linear-gradient(135deg, #0072ff 0%%, #004bb3 100%%); padding: 40px 30px; text-align: center;">
-                            <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 700; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);">
-                                MapGuide
-                            </h1>
+                            <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 700;">MapGuide</h1>
                             <p style="color: rgba(255, 255, 255, 0.9); font-size: 16px; margin: 10px 0 0 0;">Secure Access Required</p>
                         </div>
 
@@ -218,47 +171,21 @@ public class EmailService {
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>Welcome to MapGuide</title>
-                <style>
-                    body { font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-                </style>
             </head>
-            <body style="margin: 0; padding: 0; background: #f0f7ff;">
-                <div style="min-height: 100vh; padding: 20px; font-family: 'Inter', sans-serif;">
-                    <div style="max-width: 600px; margin: 20px auto; background: #ffffff; border-radius: 20px; box-shadow: 0 10px 30px rgba(0, 50, 150, 0.1); overflow: hidden;">
-                        
-                        <div style="background: linear-gradient(135deg, #0072ff 0%%, #004bb3 100%%); padding: 40px 30px; text-align: center;">
-                            <h1 style="color: white; margin: 0; font-size: 32px; font-weight: 700; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);">
-                                WELCOME TO MAPGUIDE
-                            </h1>
-                            <p style="color: rgba(255, 255, 255, 0.9); font-size: 16px; margin: 10px 0 0 0;">Your journey begins now</p>
-                        </div>
-
-                        <div style="padding: 40px 30px; text-align: center;">
-                            <h2 style="color: #1a1a1a; margin: 0 0 15px 0; font-size: 26px; font-weight: 600;">Hello %s!</h2>
-                            <p style="color: #555; font-size: 16px; line-height: 1.6; margin: 0;">
-                                Thank you for joining <strong style="color: #0072ff;">MapGuide</strong>! Your account is ready to go.
-                            </p>
-
-                            <div style="background: #f8faff; border-radius: 15px; padding: 25px; margin: 30px 0;">
-                                <h3 style="color: #0072ff; margin: 0 0 20px 0; font-size: 20px; font-weight: 600;">Key Features</h3>
-                                <div style="text-align: left;">
-                                    <p style="margin: 10px 0; color: #333; font-size: 15px;">
-                                        <strong>Real-time Navigation:</strong> Get the best routes with live traffic.
-                                    </p>
-                                    <p style="margin: 10px 0; color: #333; font-size: 15px;">
-                                        <strong>Location Sharing:</strong> Easily share your location with friends and family.
-                                    </p>
-                                    <p style="margin: 10px 0; color: #333; font-size: 15px;">
-                                        <strong>Route Planning:</strong> Plan multi-stop trips and optimize your journey.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div style="background: #f8faff; padding: 30px; text-align: center; border-top: 1px solid #e6ecf2;">
-                            <p style="color: #0072ff; font-size: 16px; margin: 0 0 10px 0; font-weight: 600;">Happy navigating!</p>
-                            <p style="color: #0072ff; font-size: 18px; margin: 0 0 20px 0; font-weight: 700;">The MapGuide Team</p>
-                            <p style="color: #999; font-size: 10px; margin: 0;">&copy; 2025 MapGuide. All rights reserved.</p>
+            <body style="margin: 0; padding: 0; background: #f0f7ff; font-family: Arial, sans-serif;">
+                <div style="min-height: 100vh; padding: 20px;">
+                    <div style="max-width: 600px; margin: 20px auto; background: #ffffff; border-radius: 20px; padding: 40px;">
+                        <h1 style="color: #0072ff; text-align: center; margin-bottom: 20px;">Welcome to MapGuide!</h1>
+                        <h2 style="color: #1a1a1a;">Hello %s,</h2>
+                        <p style="color: #555; font-size: 16px; line-height: 1.6;">
+                            Thank you for joining <strong style="color: #0072ff;">MapGuide</strong>! Your account is ready to use.
+                        </p>
+                        <p style="color: #555; font-size: 16px; line-height: 1.6;">
+                            Start exploring the best routes and navigation features today!
+                        </p>
+                        <div style="text-align: center; margin-top: 30px;">
+                            <p style="color: #0072ff; font-weight: 600;">Happy navigating!</p>
+                            <p style="color: #0072ff; font-weight: 700; font-size: 18px;">The MapGuide Team</p>
                         </div>
                     </div>
                 </div>
@@ -273,48 +200,24 @@ public class EmailService {
             <html>
             <head>
                 <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0;">
                 <title>Password Reset Confirmation</title>
-                <style>
-                    body { font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-                </style>
             </head>
-            <body style="margin: 0; padding: 0; background: #f0f7ff;">
-                <div style="min-height: 100vh; padding: 20px; font-family: 'Inter', sans-serif;">
-                    <div style="max-width: 600px; margin: 20px auto; background: #ffffff; border-radius: 20px; box-shadow: 0 10px 30px rgba(0, 50, 150, 0.1); overflow: hidden;">
-                        
-                        <div style="background: linear-gradient(135deg, #0072ff 0%%, #004bb3 100%%); padding: 40px 30px; text-align: center;">
-                            <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 700; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);">
-                                MapGuide
-                            </h1>
-                            <p style="color: rgba(255, 255, 255, 0.9); font-size: 16px; margin: 10px 0 0 0;">Password Reset Complete</p>
-                        </div>
-
-                        <div style="padding: 40px 30px; text-align: center;">
-                            <div style="margin-bottom: 25px;">
-                                <h2 style="color: #28a745; margin: 0 0 10px 0; font-size: 24px; font-weight: 600;">
-                                    Password Successfully Changed
-                                </h2>
-                                <p style="color: #555; font-size: 16px; line-height: 1.5; margin: 0;">
-                                    Your password for your MapGuide account has been successfully updated.
-                                </p>
-                            </div>
-
-                            <div style="background: #f8faff; border-radius: 15px; padding: 25px; margin: 30px 0;">
-                                <h3 style="color: #0072ff; margin: 0 0 20px 0; font-size: 20px; font-weight: 600;">
-                                    Security Recommendations
-                                </h3>
-                                <div style="text-align: left; color: #555; font-size: 15px;">
-                                    <p style="margin: 10px 0;"><strong>Unique Password:</strong> Use a strong, unique password for every service.</p>
-                                    <p style="margin: 10px 0;"><strong>Two-Factor Auth:</strong> Enable 2FA for an extra layer of security.</p>
-                                    <p style="margin: 10px 0;"><strong>Be Alert:</strong> Report any suspicious activity to our support team.</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div style="background: #f8faff; padding: 20px 30px; text-align: center; border-top: 1px solid #e6ecf2;">
-                            <p style="color: #666; font-size: 12px; margin: 0 0 5px 0;">This is an automated email from MapGuide. Please do not reply.</p>
-                            <p style="color: #999; font-size: 10px; margin: 0;">&copy; 2025 MapGuide. All rights reserved.</p>
+            <body style="margin: 0; padding: 0; background: #f0f7ff; font-family: Arial, sans-serif;">
+                <div style="min-height: 100vh; padding: 20px;">
+                    <div style="max-width: 600px; margin: 20px auto; background: #ffffff; border-radius: 20px; padding: 40px;">
+                        <h1 style="color: #0072ff; text-align: center;">MapGuide</h1>
+                        <h2 style="color: #28a745; text-align: center;">Password Successfully Changed</h2>
+                        <p style="color: #555; font-size: 16px; line-height: 1.6;">
+                            Your password for your MapGuide account has been successfully updated.
+                        </p>
+                        <p style="color: #555; font-size: 16px; line-height: 1.6;">
+                            You can now log in to your account with your new password.
+                        </p>
+                        <div style="background: #f8faff; border-radius: 10px; padding: 20px; margin-top: 20px;">
+                            <p style="color: #666; font-size: 14px; margin: 0;">
+                                If you did not make this change, please contact support immediately.
+                            </p>
                         </div>
                     </div>
                 </div>
