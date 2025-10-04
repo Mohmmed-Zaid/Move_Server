@@ -85,7 +85,7 @@ public class OTPService {
             // Send OTP via email with timeout
             try {
                 CompletableFuture<Boolean> emailFuture = emailService.sendOtpEmailAsync(email, otpCode, otpType);
-                Boolean emailSent = emailFuture.get(5, TimeUnit.SECONDS); // 5 second timeout
+                Boolean emailSent = emailFuture.get(15, TimeUnit.SECONDS); // 5 second timeout
                 
                 if (!emailSent) {
                     log.warn("Email sending failed for: {}", email);
