@@ -102,67 +102,66 @@ public class EmailService {
         };
     }
 
-    private String getOtpEmailBody(String otpCode, OTPType otpType) {
-        String purpose = switch (otpType) {
-            case SIGNUP_VERIFICATION -> "complete your account registration";
-            case PASSWORD_RESET -> "reset your password";
-            case EMAIL_VERIFICATION -> "verify your email address";
-            case LOGIN_VERIFICATION -> "verify your login";
-        };
+  private String getOtpEmailBody(String otpCode, OTPType otpType) {
+    String purpose = switch (otpType) {
+        case SIGNUP_VERIFICATION -> "complete your account registration";
+        case PASSWORD_RESET -> "reset your password";
+        case EMAIL_VERIFICATION -> "verify your email address";
+        case LOGIN_VERIFICATION -> "verify your login";
+    };
 
-        return """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>MapGuide Verification Code</title>
-            </head>
-            <body style="margin: 0; padding: 0; background: #f0f7ff; font-family: 'Segoe UI', Arial, sans-serif;">
-                <div style="min-height: 100vh; padding: 20px;">
-                    <div style="max-width: 600px; margin: 20px auto; background: #ffffff; border-radius: 20px; box-shadow: 0 10px 30px rgba(0, 50, 150, 0.1); overflow: hidden;">
-                        
-                        <div style="background: linear-gradient(135deg, #0072ff 0%%, #004bb3 100%%); padding: 40px 30px; text-align: center;">
-                            <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 700;">MapGuide</h1>
-                            <p style="color: rgba(255, 255, 255, 0.9); font-size: 16px; margin: 10px 0 0 0;">Secure Access Required</p>
-                        </div>
+    return String.format("""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>MapGuide Verification Code</title>
+        </head>
+        <body style="margin: 0; padding: 0; background: #f0f7ff; font-family: 'Segoe UI', Arial, sans-serif;">
+            <div style="min-height: 100vh; padding: 20px;">
+                <div style="max-width: 600px; margin: 20px auto; background: #ffffff; border-radius: 20px; box-shadow: 0 10px 30px rgba(0, 50, 150, 0.1); overflow: hidden;">
+                    
+                    <div style="background: linear-gradient(135deg, #0072ff 0%%, #004bb3 100%%); padding: 40px 30px; text-align: center;">
+                        <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 700;">MapGuide</h1>
+                        <p style="color: rgba(255, 255, 255, 0.9); font-size: 16px; margin: 10px 0 0 0;">Secure Access Required</p>
+                    </div>
 
-                        <div style="padding: 40px 30px; text-align: center;">
-                            <h2 style="color: #1a1a1a; margin: 0 0 15px 0; font-size: 24px; font-weight: 600;">
-                                Your one-time code to %s
-                            </h2>
-                            <p style="color: #555; font-size: 16px; line-height: 1.5; margin: 0;">
-                                Please enter this code to continue.
+                    <div style="padding: 40px 30px; text-align: center;">
+                        <h2 style="color: #1a1a1a; margin: 0 0 15px 0; font-size: 24px; font-weight: 600;">
+                            Your one-time code to %s
+                        </h2>
+                        <p style="color: #555; font-size: 16px; line-height: 1.5; margin: 0;">
+                            Please enter this code to continue.
+                        </p>
+
+                        <div style="background: #f8faff; border: 2px solid #0072ff; border-radius: 15px; padding: 20px 30px; margin: 30px 0; display: inline-block; box-shadow: 0 8px 16px rgba(0, 114, 255, 0.15);">
+                            <p style="color: #0072ff; font-size: 14px; font-weight: 600; margin: 0 0 10px 0; text-transform: uppercase;">
+                                Verification Code
                             </p>
-
-                            <div style="background: #f8faff; border: 2px solid #0072ff; border-radius: 15px; padding: 20px 30px; margin: 30px 0; display: inline-block; box-shadow: 0 8px 16px rgba(0, 114, 255, 0.15);">
-                                <p style="color: #0072ff; font-size: 14px; font-weight: 600; margin: 0 0 10px 0; text-transform: uppercase;">
-                                    Verification Code
-                                </p>
-                                <h1 style="color: #0072ff; font-size: 42px; margin: 0; letter-spacing: 8px; font-weight: 700;">%s</h1>
-                            </div>
-
-                            <div style="background: #fff3e6; border: 1px solid #ff9933; border-radius: 10px; padding: 15px; margin-top: 30px; text-align: left;">
-                                <p style="color: #ff9933; margin: 0; font-size: 14px; line-height: 1.5;">
-                                    <strong>Important:</strong> This code is valid for only 5 minutes.
-                                </p>
-                                <p style="color: #ff9933; margin: 10px 0 0 0; font-size: 14px; line-height: 1.5;">
-                                    <strong>Security Notice:</strong> If you did not request this, please ignore this email.
-                                </p>
-                            </div>
+                            <h1 style="color: #0072ff; font-size: 42px; margin: 0; letter-spacing: 8px; font-weight: 700;">%s</h1>
                         </div>
 
-                        <div style="background: #f8faff; padding: 20px 30px; text-align: center; border-top: 1px solid #e6ecf2;">
-                            <p style="color: #666; font-size: 12px; margin: 0 0 5px 0;">This is an automated message from MapGuide. Please do not reply.</p>
-                            <p style="color: #999; font-size: 10px; margin: 0;">&copy; 2025 MapGuide. All rights reserved.</p>
+                        <div style="background: #fff3e6; border: 1px solid #ff9933; border-radius: 10px; padding: 15px; margin-top: 30px; text-align: left;">
+                            <p style="color: #ff9933; margin: 0; font-size: 14px; line-height: 1.5;">
+                                <strong>Important:</strong> This code is valid for only 5 minutes.
+                            </p>
+                            <p style="color: #ff9933; margin: 10px 0 0 0; font-size: 14px; line-height: 1.5;">
+                                <strong>Security Notice:</strong> If you did not request this, please ignore this email.
+                            </p>
                         </div>
                     </div>
-                </div>
-            </body>
-            </html>
-            """.formatted(purpose, otpCode);
-    }
 
+                    <div style="background: #f8faff; padding: 20px 30px; text-align: center; border-top: 1px solid #e6ecf2;">
+                        <p style="color: #666; font-size: 12px; margin: 0 0 5px 0;">This is an automated message from MapGuide. Please do not reply.</p>
+                        <p style="color: #999; font-size: 10px; margin: 0;">&copy; 2025 MapGuide. All rights reserved.</p>
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
+        """, purpose, otpCode);
+}
     private String buildWelcomeEmailBody(String userName) {
         return """
             <!DOCTYPE html>
