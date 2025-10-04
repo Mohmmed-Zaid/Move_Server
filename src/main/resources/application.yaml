@@ -6,7 +6,6 @@ spring:
     name: move-backend
   main:
     allow-bean-definition-overriding: true
-
   datasource:
     url: ${DATABASE_URL}
     username: ${DB_USERNAME}
@@ -19,7 +18,6 @@ spring:
       connection-timeout: 30000
       connection-test-query: SELECT 1
       validation-timeout: 5000
-
   jpa:
     hibernate:
       ddl-auto: update
@@ -32,24 +30,6 @@ spring:
           batch_size: 50
         order_inserts: true
         order_updates: true
-
-  mail:
-    host: smtp.gmail.com
-    port: 587
-    username: ${MAIL_USERNAME}
-    password: ${MAIL_PASSWORD}
-    protocol: smtp
-    properties:
-      mail:
-        smtp:
-          auth: true
-          starttls:
-            enable: true
-            required: true
-          ssl:
-            trust: smtp.gmail.com
-        debug: false
-
   jackson:
     time-zone: UTC
     serialization:
@@ -57,11 +37,18 @@ spring:
     deserialization:
       fail-on-unknown-properties: false
     default-property-inclusion: NON_NULL
-
   servlet:
     multipart:
       max-file-size: 10MB
       max-request-size: 10MB
+
+# SendGrid Configuration
+sendgrid:
+  api:
+    key: ${SENDGRID_API_KEY}
+  from:
+    email: 4squaredevs@gmail.com
+    name: MapGuide
 
 # CORS Configuration
 cors:
@@ -69,8 +56,8 @@ cors:
     - http://localhost:3000
     - http://localhost:5173
     - http://localhost:5137
-    - https://move-ui-three.vercel.app    
-    - https://*.vercel.app                 
+    - https://move-ui-three.vercel.app
+    - https://*.vercel.app
   allowed-methods: [GET, POST, PUT, DELETE, OPTIONS, PATCH]
   allowed-headers: ["*"]
   allow-credentials: true
@@ -137,8 +124,6 @@ logging:
     org.hibernate.SQL: WARN
     org.hibernate.type.descriptor.sql.BasicBinder: WARN
     org.hibernate.engine.jdbc.spi.SqlExceptionHelper: ERROR
-    org.springframework.mail: INFO
-    org.springframework.mail.javamail: INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 
