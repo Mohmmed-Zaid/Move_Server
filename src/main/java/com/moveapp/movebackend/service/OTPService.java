@@ -14,7 +14,6 @@ import org.springframework.util.StringUtils;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -68,6 +67,8 @@ public class OTPService {
             // Generate new OTP
             String otpCode = generateOtpCode();
 
+            log.info("Generated OTP: {} for email: {} and type: {}", otpCode, email, otpType);
+
             // Create and save OTP
             OTP otp = OTP.builder()
                     .email(email)
@@ -80,12 +81,12 @@ public class OTPService {
                     .build();
 
             otp = otpRepository.save(otp);
-            log.info("OTP created with ID: {} for email: {}", otp.getId(), email);
+            log.info("OTP saved with ID: {} for email: {}", otp.getId(), email);
 
             // Send OTP via email with timeout
             try {
                 CompletableFuture<Boolean> emailFuture = emailService.sendOtpEmailAsync(email, otpCode, otpType);
-                Boolean emailSent = emailFuture.get(15, TimeUnit.SECONDS); // 5 second timeout
+                Boolean emailSent = emailFuture.get(15, TimeUnit.SECONDS);
                 
                 if (!emailSent) {
                     log.warn("Email sending failed for: {}", email);
@@ -96,21 +97,19 @@ public class OTPService {
                             .success(false)
                             .message("Failed to send OTP email. Please try again.")
                             .build();
-                } else {
-                    log.info("OTP email sent successfully to: {}", email);
                 }
+                
+                log.info("OTP email sent successfully to: {}", email);
             } catch (TimeoutException e) {
                 log.error("Email sending timeout for {}: {}", email, e.getMessage());
-                otp.setUsed(true);
-                otpRepository.save(otp);
-
+                // Don't mark as used - OTP might still be sent
                 return OtpResponse.builder()
                         .success(false)
                         .message("Email sending timeout. Please try again.")
                         .build();
             } catch (InterruptedException e) {
                 log.error("Email sending interrupted for {}: {}", email, e.getMessage());
-                Thread.currentThread().interrupt(); // Restore interrupt status
+                Thread.currentThread().interrupt();
                 otp.setUsed(true);
                 otpRepository.save(otp);
 
@@ -152,35 +151,45 @@ public class OTPService {
         }
     }
 
-
-    public OtpResponse verifyOtp(VerifyOtpRequest request) {
-        log.info("Verifying and consuming OTP for email: {} and type: {}", request.getEmail(), request.getType());
+    /**
+     * Verifies OTP WITHOUT consuming it (for preview/check before final action)
+     */
+    public OtpResponse verifyOtpWithoutConsuming(VerifyOtpRequest request) {
+        log.info("Verifying OTP without consuming for email: {} and type: {}", 
+                 request.getEmail(), request.getType());
 
         try {
-            // Normalize email
             String normalizedEmail = request.getEmail().toLowerCase().trim();
+            String normalizedOtp = request.getOtp().trim();
+            OTPType otpType = OTPType.valueOf(request.getType());
 
-            // Find OTP entry
+            log.debug("Looking for OTP - Email: {}, Type: {}, OTP: {}", 
+                     normalizedEmail, otpType, normalizedOtp);
+
+            // Find active OTP
             Optional<OTP> otpOpt = otpRepository.findByEmailAndTypeAndUsedFalse(
-                    normalizedEmail,
-                    OTPType.valueOf(request.getType())
-            );
+                    normalizedEmail, otpType);
 
             if (otpOpt.isEmpty()) {
-                log.warn("No valid OTP found for email: {} and type: {}", normalizedEmail, request.getType());
+                log.warn("No valid OTP found for email: {} and type: {}", 
+                        normalizedEmail, request.getType());
                 return OtpResponse.builder()
                         .success(false)
-                        .message("Invalid or expired OTP")
+                        .message("Invalid or expired OTP. Please request a new one.")
                         .remainingAttempts(0)
                         .build();
             }
 
             OTP otp = otpOpt.get();
+            
+            log.info("Found OTP - ID: {}, Code: {}, Expiry: {}, Attempts: {}/{}", 
+                    otp.getId(), otp.getOtpCode(), otp.getExpiryTime(), 
+                    otp.getAttempts(), maxAttempts);
 
             // Check if OTP is expired
-            if (otp.getExpiresAt().isBefore(LocalDateTime.now())) {
-                log.warn("Expired OTP for email: {} and type: {}", normalizedEmail, request.getType());
-                // Mark as used to prevent reuse
+            if (otp.getExpiryTime().isBefore(LocalDateTime.now())) {
+                log.warn("Expired OTP for email: {} and type: {}", 
+                        normalizedEmail, request.getType());
                 otp.setUsed(true);
                 otpRepository.save(otp);
 
@@ -192,51 +201,50 @@ public class OTPService {
             }
 
             // Verify OTP code
-            if (!otp.getOtpCode().equals(request.getOtp().trim())) {
-                // Increment attempt count
+            if (!otp.getOtpCode().equals(normalizedOtp)) {
                 int currentAttempts = otp.getAttempts() != null ? otp.getAttempts() : 0;
                 int newAttempts = currentAttempts + 1;
-                int remainingAttempts = Math.max(0,MAX_OTPS_PER_PERIOD - newAttempts);
+                int remainingAttempts = Math.max(0, maxAttempts - newAttempts);
 
                 otp.setAttempts(newAttempts);
 
+                log.warn("Invalid OTP for email: {}. Expected: {}, Got: {}. Attempt: {}/{}", 
+                        normalizedEmail, otp.getOtpCode(), normalizedOtp, newAttempts, maxAttempts);
+
                 // If max attempts reached, mark as used
-                if (newAttempts >= MAX_OTPS_PER_PERIOD) {
+                if (newAttempts >= maxAttempts) {
                     otp.setUsed(true);
                     otpRepository.save(otp);
 
-                    log.warn("Maximum OTP attempts reached for email: {} and type: {}", normalizedEmail, request.getType());
+                    log.warn("Maximum OTP attempts reached for email: {}", normalizedEmail);
                     return OtpResponse.builder()
                             .success(false)
                             .message("Maximum attempts reached. Please request a new OTP.")
                             .remainingAttempts(0)
                             .build();
-                } else {
-                    otpRepository.save(otp);
-
-                    log.warn("Invalid OTP for email: {} and type: {}, attempts: {}", normalizedEmail, request.getType(), newAttempts);
-                    return OtpResponse.builder()
-                            .success(false)
-                            .message("Invalid OTP. Please try again.")
-                            .remainingAttempts(remainingAttempts)
-                            .build();
                 }
+
+                otpRepository.save(otp);
+
+                return OtpResponse.builder()
+                        .success(false)
+                        .message("Invalid OTP. Please try again.")
+                        .remainingAttempts(remainingAttempts)
+                        .build();
             }
 
-            // OTP is valid - mark as used to consume it
-            otp.setUsed(true);
-            otpRepository.save(otp);
-
-            log.info("OTP verified and consumed successfully for email: {} and type: {}", normalizedEmail, request.getType());
+            // OTP is valid - DO NOT mark as used
+            log.info("OTP verified successfully (not consumed) for email: {}", normalizedEmail);
 
             return OtpResponse.builder()
                     .success(true)
                     .message("OTP verified successfully")
-                    .remainingAttempts(0)
+                    .remainingAttempts(maxAttempts - (otp.getAttempts() != null ? otp.getAttempts() : 0))
                     .build();
 
         } catch (Exception e) {
-            log.error("Error verifying OTP for email: {} and type: {}", request.getEmail(), request.getType(), e);
+            log.error("Error verifying OTP without consuming for email: {}", 
+                     request.getEmail(), e);
             return OtpResponse.builder()
                     .success(false)
                     .message("Failed to verify OTP. Please try again.")
@@ -245,248 +253,134 @@ public class OTPService {
         }
     }
 
-    public OtpResponse verifyOtpForSignup(VerifyOtpRequest request) {
+    /**
+     * Verifies OTP AND consumes it (marks as used)
+     */
+    public OtpResponse verifyOtp(VerifyOtpRequest request) {
+        log.info("Verifying and consuming OTP for email: {} and type: {}", 
+                 request.getEmail(), request.getType());
+
         try {
-            String email = validateAndNormalizeEmail(request.getEmail());
-            OTPType otpType = OTPType.SIGNUP_VERIFICATION; // Force signup verification type
-            String otpCode = validateOtpCode(request.getOtp());
+            String normalizedEmail = request.getEmail().toLowerCase().trim();
+            String normalizedOtp = request.getOtp().trim();
+            OTPType otpType = OTPType.valueOf(request.getType());
 
-            log.info("Processing OTP verification for signup (non-consuming) for email: {} and type: {}", email, otpType);
+            log.debug("Looking for OTP to consume - Email: {}, Type: {}, OTP: {}", 
+                     normalizedEmail, otpType, normalizedOtp);
 
-            Optional<OTP> otpOptional = otpRepository.findActiveOtpByEmailAndType(
-                    email, otpType, LocalDateTime.now());
+            // Find OTP entry
+            Optional<OTP> otpOpt = otpRepository.findByEmailAndTypeAndUsedFalse(
+                    normalizedEmail, otpType);
 
-            if (otpOptional.isEmpty()) {
-                log.warn("No active SIGNUP_VERIFICATION OTP found for email: {}", email);
-                // Also check if there's any active OTP for debugging
-                Optional<OTP> anyActiveOtp = otpRepository.findActiveOtpByEmail(email, LocalDateTime.now());
-                if (anyActiveOtp.isPresent()) {
-                    log.info("Found active OTP of type: {} for email: {}", anyActiveOtp.get().getType(), email);
+            if (otpOpt.isEmpty()) {
+                log.warn("No valid OTP found for email: {}", normalizedEmail);
+                return OtpResponse.builder()
+                        .success(false)
+                        .message("Invalid or expired OTP")
+                        .remainingAttempts(0)
+                        .build();
+            }
+
+            OTP otp = otpOpt.get();
+
+            log.info("Found OTP to consume - ID: {}, Code: {}, Expiry: {}", 
+                    otp.getId(), otp.getOtpCode(), otp.getExpiryTime());
+
+            // Check if OTP is expired
+            if (otp.getExpiryTime().isBefore(LocalDateTime.now())) {
+                log.warn("Expired OTP for email: {}", normalizedEmail);
+                otp.setUsed(true);
+                otpRepository.save(otp);
+
+                return OtpResponse.builder()
+                        .success(false)
+                        .message("OTP has expired. Please request a new one.")
+                        .remainingAttempts(0)
+                        .build();
+            }
+
+            // Verify OTP code
+            if (!otp.getOtpCode().equals(normalizedOtp)) {
+                int currentAttempts = otp.getAttempts() != null ? otp.getAttempts() : 0;
+                int newAttempts = currentAttempts + 1;
+                int remainingAttempts = Math.max(0, maxAttempts - newAttempts);
+
+                otp.setAttempts(newAttempts);
+
+                log.warn("Invalid OTP for email: {}. Expected: {}, Got: {}. Attempt: {}/{}", 
+                        normalizedEmail, otp.getOtpCode(), normalizedOtp, newAttempts, maxAttempts);
+
+                if (newAttempts >= maxAttempts) {
+                    otp.setUsed(true);
+                    otpRepository.save(otp);
+
+                    return OtpResponse.builder()
+                            .success(false)
+                            .message("Maximum attempts reached. Please request a new OTP.")
+                            .remainingAttempts(0)
+                            .build();
                 }
-                return OtpResponse.builder()
-                        .success(false)
-                        .message("No valid signup OTP found. Please request a new one.")
-                        .build();
-            }
 
-            OTP otp = otpOptional.get();
-            log.info("Found signup OTP with ID: {}, code: {}, attempts: {}", otp.getId(), otp.getOtpCode(), otp.getAttempts());
-
-            if (otp.getExpiryTime().isBefore(LocalDateTime.now())) {
-                log.warn("Expired OTP verification attempt for email: {}", email);
-                otp.setUsed(true);
                 otpRepository.save(otp);
 
                 return OtpResponse.builder()
                         .success(false)
-                        .message("OTP has expired. Please request a new one.")
-                        .build();
-            }
-
-            if (otp.isMaxAttemptsReached()) {
-                log.warn("Max attempts reached for OTP verification for email: {}", email);
-                return OtpResponse.builder()
-                        .success(false)
-                        .message("Maximum attempts reached. Please request a new OTP.")
-                        .remainingAttempts(0)
-                        .build();
-            }
-
-            // Verify OTP code WITHOUT consuming it
-            if (!otp.getOtpCode().equals(otpCode)) {
-                otp.setAttempts(otp.getAttempts() + 1);
-                otpRepository.save(otp);
-
-                int remainingAttempts = maxAttempts - otp.getAttempts();
-                log.warn("Invalid OTP code for email: {}. Expected: {}, Got: {}. Remaining attempts: {}",
-                        email, otp.getOtpCode(), otpCode, remainingAttempts);
-
-                return OtpResponse.builder()
-                        .success(false)
-                        .message("Invalid OTP code")
+                        .message("Invalid OTP. Please try again.")
                         .remainingAttempts(remainingAttempts)
                         .build();
             }
 
-            log.info("OTP verified successfully for signup (non-consuming) for {} with type {}", email, otpType);
-
-            return OtpResponse.builder()
-                    .success(true)
-                    .message("OTP verified successfully")
-                    .email(email)
-                    .type(otpType.name())
-                    .remainingAttempts(maxAttempts - otp.getAttempts())
-                    .build();
-
-        } catch (Exception e) {
-            log.error("Failed to verify OTP for signup for email {}: {}", request.getEmail(), e.getMessage(), e);
-            return OtpResponse.builder()
-                    .success(false)
-                    .message("OTP verification failed. Please try again.")
-                    .build();
-        }
-    }
-
-    public OtpResponse verifyOtpForPasswordReset(VerifyOtpRequest request) {
-        try {
-            String email = validateAndNormalizeEmail(request.getEmail());
-            OTPType otpType = OTPType.PASSWORD_RESET; // Force password reset verification type
-            String otpCode = validateOtpCode(request.getOtp());
-
-            log.info("Processing OTP verification for password reset (non-consuming) for email: {} and type: {}", email, otpType);
-
-            Optional<OTP> otpOptional = otpRepository.findActiveOtpByEmailAndType(
-                    email, otpType, LocalDateTime.now());
-
-            if (otpOptional.isEmpty()) {
-                log.warn("No active PASSWORD_RESET OTP found for email: {}", email);
-                return OtpResponse.builder()
-                        .success(false)
-                        .message("No valid password reset OTP found. Please request a new one.")
-                        .build();
-            }
-
-            OTP otp = otpOptional.get();
-            log.info("Found password reset OTP with ID: {}, code: {}, attempts: {}", otp.getId(), otp.getOtpCode(), otp.getAttempts());
-
-            if (otp.getExpiryTime().isBefore(LocalDateTime.now())) {
-                log.warn("Expired OTP verification attempt for email: {}", email);
-                otp.setUsed(true);
-                otpRepository.save(otp);
-
-                return OtpResponse.builder()
-                        .success(false)
-                        .message("OTP has expired. Please request a new one.")
-                        .build();
-            }
-
-            if (otp.isMaxAttemptsReached()) {
-                log.warn("Max attempts reached for OTP verification for email: {}", email);
-                return OtpResponse.builder()
-                        .success(false)
-                        .message("Maximum attempts reached. Please request a new OTP.")
-                        .remainingAttempts(0)
-                        .build();
-            }
-
-            // Verify OTP code WITHOUT consuming it
-            if (!otp.getOtpCode().equals(otpCode)) {
-                otp.setAttempts(otp.getAttempts() + 1);
-                otpRepository.save(otp);
-
-                int remainingAttempts = maxAttempts - otp.getAttempts();
-                log.warn("Invalid OTP code for password reset for email: {}. Expected: {}, Got: {}. Remaining attempts: {}",
-                        email, otp.getOtpCode(), otpCode, remainingAttempts);
-
-                return OtpResponse.builder()
-                        .success(false)
-                        .message("Invalid OTP code")
-                        .remainingAttempts(remainingAttempts)
-                        .build();
-            }
-
-            log.info("OTP verified successfully for password reset (non-consuming) for {} with type {}", email, otpType);
-
-            return OtpResponse.builder()
-                    .success(true)
-                    .message("OTP verified successfully")
-                    .email(email)
-                    .type(otpType.name())
-                    .remainingAttempts(maxAttempts - otp.getAttempts())
-                    .build();
-
-        } catch (Exception e) {
-            log.error("Failed to verify OTP for password reset for email {}: {}", request.getEmail(), e.getMessage(), e);
-            return OtpResponse.builder()
-                    .success(false)
-                    .message("OTP verification failed. Please try again.")
-                    .build();
-        }
-    }
-
-    public OtpResponse verifyAndConsumeOtp(VerifyOtpRequest request) {
-        try {
-            String email = validateAndNormalizeEmail(request.getEmail());
-            OTPType otpType = parseOtpType(request.getType());
-            String otpCode = validateOtpCode(request.getOtp());
-
-            log.info("Processing OTP verification and consumption for email: {} and type: {}", email, otpType);
-
-            Optional<OTP> otpOptional = otpRepository.findActiveOtpByEmailAndType(
-                    email, otpType, LocalDateTime.now());
-
-            if (otpOptional.isEmpty()) {
-                log.warn("No active OTP found for email: {} and type: {}", email, otpType);
-                return OtpResponse.builder()
-                        .success(false)
-                        .message("No valid OTP found. Please request a new one.")
-                        .build();
-            }
-
-            OTP otp = otpOptional.get();
-
-            if (otp.getExpiryTime().isBefore(LocalDateTime.now())) {
-                log.warn("Expired OTP verification attempt for email: {}", email);
-                otp.setUsed(true);
-                otpRepository.save(otp);
-
-                return OtpResponse.builder()
-                        .success(false)
-                        .message("OTP has expired. Please request a new one.")
-                        .build();
-            }
-
-            if (otp.isUsed()) {
-                log.warn("OTP already used for email: {} and type: {}", email, otpType);
-                return OtpResponse.builder()
-                        .success(false)
-                        .message("OTP has already been used. Please request a new one.")
-                        .build();
-            }
-
-            if (otp.isMaxAttemptsReached()) {
-                log.warn("Max attempts reached for OTP verification for email: {}", email);
-                return OtpResponse.builder()
-                        .success(false)
-                        .message("Maximum attempts reached. Please request a new OTP.")
-                        .remainingAttempts(0)
-                        .build();
-            }
-
-            if (!otp.getOtpCode().equals(otpCode)) {
-                otp.setAttempts(otp.getAttempts() + 1);
-                otpRepository.save(otp);
-
-                int remainingAttempts = maxAttempts - otp.getAttempts();
-                log.warn("Invalid OTP code for email: {}. Remaining attempts: {}", email, remainingAttempts);
-
-                return OtpResponse.builder()
-                        .success(false)
-                        .message("Invalid OTP code")
-                        .remainingAttempts(remainingAttempts)
-                        .build();
-            }
-
-            // Mark OTP as used (consume it)
+            // OTP is valid - mark as used to consume it
             otp.setUsed(true);
             otpRepository.save(otp);
 
-            log.info("OTP verified and consumed successfully for {} with type {}", email, otpType);
+            log.info("OTP verified and consumed successfully for email: {}", normalizedEmail);
 
             return OtpResponse.builder()
                     .success(true)
                     .message("OTP verified successfully")
-                    .email(email)
-                    .type(otpType.name())
+                    .remainingAttempts(0)
                     .build();
 
         } catch (Exception e) {
-            log.error("Failed to verify and consume OTP for email {}: {}", request.getEmail(), e.getMessage(), e);
+            log.error("Error verifying OTP for email: {}", request.getEmail(), e);
             return OtpResponse.builder()
                     .success(false)
-                    .message("OTP verification failed. Please try again.")
+                    .message("Failed to verify OTP. Please try again.")
+                    .remainingAttempts(0)
                     .build();
         }
+    }
+
+    /**
+     * Alias for verifyOtp - verifies and consumes
+     */
+    public OtpResponse verifyAndConsumeOtp(VerifyOtpRequest request) {
+        return verifyOtp(request);
+    }
+
+    /**
+     * Verifies OTP for signup without consuming it
+     */
+    public OtpResponse verifyOtpForSignup(VerifyOtpRequest request) {
+        VerifyOtpRequest signupRequest = VerifyOtpRequest.builder()
+                .email(request.getEmail())
+                .otp(request.getOtp())
+                .type("SIGNUP_VERIFICATION")
+                .build();
+        return verifyOtpWithoutConsuming(signupRequest);
+    }
+
+    /**
+     * Verifies OTP for password reset without consuming it
+     */
+    public OtpResponse verifyOtpForPasswordReset(VerifyOtpRequest request) {
+        VerifyOtpRequest resetRequest = VerifyOtpRequest.builder()
+                .email(request.getEmail())
+                .otp(request.getOtp())
+                .type("PASSWORD_RESET")
+                .build();
+        return verifyOtpWithoutConsuming(resetRequest);
     }
 
     // ===== STATUS AND UTILITY METHODS =====
@@ -573,96 +467,6 @@ public class OTPService {
             return false;
         }
     }
-
-    public OtpResponse verifyOtpWithoutConsuming(VerifyOtpRequest request) {
-        log.info("Verifying OTP without consuming for email: {} and type: {}", request.getEmail(), request.getType());
-
-        try {
-            // Normalize email
-            String normalizedEmail = request.getEmail().toLowerCase().trim();
-
-            // Find OTP entry
-            Optional<OTP> otpOpt = otpRepository.findByEmailAndTypeAndUsedFalse(
-                    normalizedEmail,
-                    OTPType.valueOf(request.getType())
-            );
-
-            if (otpOpt.isEmpty()) {
-                log.warn("No valid OTP found for email: {} and type: {}", normalizedEmail, request.getType());
-                return OtpResponse.builder()
-                        .success(false)
-                        .message("Invalid or expired OTP")
-                        .remainingAttempts(0)
-                        .build();
-            }
-
-            OTP otp = otpOpt.get();
-
-            // Check if OTP is expired
-            if (otp.getExpiresAt().isBefore(LocalDateTime.now())) {
-                log.warn("Expired OTP for email: {} and type: {}", normalizedEmail, request.getType());
-                // Mark as used to prevent reuse
-                otp.setUsed(true);
-                otpRepository.save(otp);
-
-                return OtpResponse.builder()
-                        .success(false)
-                        .message("OTP has expired. Please request a new one.")
-                        .remainingAttempts(0)
-                        .build();
-            }
-
-            // Verify OTP code
-            if (!otp.getOtpCode().equals(request.getOtp().trim())) {
-                // Increment attempt count
-                int currentAttempts = otp.getAttempts() != null ? otp.getAttempts() : 0;
-                int newAttempts = currentAttempts + 1;
-                int remainingAttempts = Math.max(0, MAX_OTPS_PER_PERIOD - newAttempts);
-
-                otp.setAttempts(newAttempts);
-
-                // If max attempts reached, mark as used
-                if (newAttempts >= MAX_OTPS_PER_PERIOD) {
-                    otp.setUsed(true);
-                    otpRepository.save(otp);
-
-                    log.warn("Maximum OTP attempts reached for email: {} and type: {}", normalizedEmail, request.getType());
-                    return OtpResponse.builder()
-                            .success(false)
-                            .message("Maximum attempts reached. Please request a new OTP.")
-                            .remainingAttempts(0)
-                            .build();
-                } else {
-                    otpRepository.save(otp);
-
-                    log.warn("Invalid OTP for email: {} and type: {}, attempts: {}", normalizedEmail, request.getType(), newAttempts);
-                    return OtpResponse.builder()
-                            .success(false)
-                            .message("Invalid OTP. Please try again.")
-                            .remainingAttempts(remainingAttempts)
-                            .build();
-                }
-            }
-
-            // OTP is valid - DO NOT mark as used, just verify
-            log.info("OTP verified successfully (not consumed) for email: {} and type: {}", normalizedEmail, request.getType());
-
-            return OtpResponse.builder()
-                    .success(true)
-                    .message("OTP verified successfully")
-                    .remainingAttempts(Math.max(0, MAX_OTPS_PER_PERIOD - (otp.getAttempts() != null ? otp.getAttempts() : 0)))
-                    .build();
-
-        } catch (Exception e) {
-            log.error("Error verifying OTP without consuming for email: {} and type: {}", request.getEmail(), request.getType(), e);
-            return OtpResponse.builder()
-                    .success(false)
-                    .message("Failed to verify OTP. Please try again.")
-                    .remainingAttempts(0)
-                    .build();
-        }
-    }
-
 
     private Long getNextAllowedTime(String email, OTPType otpType) {
         try {
