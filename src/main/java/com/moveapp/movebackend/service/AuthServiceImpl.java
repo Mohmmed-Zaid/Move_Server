@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
+import java.util.concurrent.TimeoutException;
 
 @Service
 @RequiredArgsConstructor
@@ -33,57 +34,87 @@ public class AuthServiceImpl implements AuthService {
     private final OTPService otpService;
     private final EmailService emailService;
 
-  @Override
-public OtpResponse sendSignupOtp(String email) {
-    log.info("Sending signup OTP to email: {}", email);
+    @Override
+    public OtpResponse sendSignupOtp(String email) {
+        log.info("Sending signup OTP to email: {}", email);
 
-    try {
-        String normalizedEmail = email.toLowerCase().trim();
+        try {
+            String normalizedEmail = email.toLowerCase().trim();
 
-        // Check if email already exists
-        if (userRepository.existsByEmail(normalizedEmail)) {
-            log.warn("Signup OTP request for existing email: {}", normalizedEmail);
-            return OtpResponse.builder()
-                    .success(false)
-                    .message("Email address already registered.")
+            // Check if email already exists
+            if (userRepository.existsByEmail(normalizedEmail)) {
+                log.warn("Signup OTP request for existing email: {}", normalizedEmail);
+                return OtpResponse.builder()
+                        .success(false)
+                        .message("Email address already registered.")
+                        .build();
+            }
+
+            // Create OTP request
+            SendOtpRequest request = SendOtpRequest.builder()
+                    .email(normalizedEmail)
+                    .type("SIGNUP_VERIFICATION")
                     .build();
-        }
 
-        // Create OTP request
-        SendOtpRequest request = SendOtpRequest.builder()
-                .email(normalizedEmail)
-                .type("SIGNUP_VERIFICATION")
-                .build();
+            // Send OTP via OTP service with timeout handling
+            OtpResponse response;
+            try {
+                response = otpService.sendOtp(request);
+            } catch (Exception e) {
+                log.error("Exception while sending OTP: {}", e.getMessage(), e);
+                
+                // Check if it's a timeout exception
+                if (e instanceof TimeoutException || 
+                    (e.getMessage() != null && e.getMessage().toLowerCase().contains("timeout"))) {
+                    log.warn("Email sending timeout for signup: {}", normalizedEmail);
+                    return OtpResponse.builder()
+                            .success(false)
+                            .message("Email sending timeout. The OTP may still arrive. Please wait a moment and try again if needed.")
+                            .build();
+                }
+                
+                // Generic error
+                return OtpResponse.builder()
+                        .success(false)
+                        .message("Failed to send OTP. Please try again.")
+                        .build();
+            }
 
-        // Send OTP via OTP service
-        OtpResponse response = otpService.sendOtp(request);
+            // Handle various failure scenarios
+            if (!response.getSuccess()) {
+                String message = response.getMessage();
+                
+                if (message != null && message.toLowerCase().contains("timeout")) {
+                    log.warn("Email sending timeout for signup: {}", normalizedEmail);
+                    return OtpResponse.builder()
+                            .success(false)
+                            .message("Email sending timeout. Please wait a moment and try again.")
+                            .build();
+                }
+                
+                if (message != null && message.contains("Failed to send")) {
+                    log.warn("Email sending failed for signup: {}", normalizedEmail);
+                    return OtpResponse.builder()
+                            .success(false)
+                            .message("Failed to send verification email. Please check your email address and try again.")
+                            .build();
+                }
+                
+                log.warn("Signup OTP failed for: {} - {}", normalizedEmail, message);
+                return response;
+            }
 
-        // Handle email sending failures gracefully
-        if (!response.getSuccess() && response.getMessage() != null &&
-                response.getMessage().contains("Failed to send")) {
-            log.warn("Email sending failed for signup: {}", normalizedEmail);
-            return OtpResponse.builder()
-                    .success(false)
-                    .message("Failed to send verification email. Please check your email address and try again.")
-                    .build();
-        }
-
-        if (response.getSuccess()) {
             log.info("Signup OTP sent successfully to: {}", normalizedEmail);
-        } else {
-            log.warn("Signup OTP failed for: {} - {}", normalizedEmail, response.getMessage());
+            return response;
+
+        } catch (Exception e) {
+            log.error("Error sending signup OTP to: {}", email, e);
+            return OtpResponse.builder()
+                    .success(false)
+                    .message("Failed to send OTP. Please try again.")
+                    .build();
         }
-
-        return response;
-
-    } catch (Exception e) {
-        log.error("Error sending signup OTP to: {}", email, e);
-        return OtpResponse.builder()
-                .success(false)
-                .message("Failed to send OTP. Please try again.")
-                .build();
     }
-}
 
     @Override
     public OtpResponse verifySignupOtp(String email, String otp) {
@@ -91,6 +122,12 @@ public OtpResponse sendSignupOtp(String email) {
 
         try {
             String normalizedEmail = email.toLowerCase().trim();
+            String normalizedOtp = otp.trim();
+            
+            // Enhanced debug logging
+            log.debug("Normalized email: {}", normalizedEmail);
+            log.debug("OTP length: {}", normalizedOtp.length());
+            log.debug("OTP value: {}", normalizedOtp);
 
             if (userRepository.existsByEmail(normalizedEmail)) {
                 log.warn("Signup OTP verification for existing email: {}", normalizedEmail);
@@ -102,11 +139,17 @@ public OtpResponse sendSignupOtp(String email) {
 
             VerifyOtpRequest otpRequest = VerifyOtpRequest.builder()
                     .email(normalizedEmail)
-                    .otp(otp.trim())
+                    .otp(normalizedOtp)
                     .type("SIGNUP_VERIFICATION")
                     .build();
 
+            log.debug("Calling OTP service with request: email={}, type={}", 
+                      normalizedEmail, otpRequest.getType());
+
             OtpResponse response = otpService.verifyOtpWithoutConsuming(otpRequest);
+
+            log.debug("OTP service response: success={}, message={}", 
+                      response.getSuccess(), response.getMessage());
 
             if (response.getSuccess()) {
                 log.info("Signup OTP verified successfully for: {}", normalizedEmail);
@@ -145,12 +188,15 @@ public OtpResponse sendSignupOtp(String email) {
                         .type("SIGNUP_VERIFICATION")
                         .build();
 
+                log.debug("Verifying OTP before signup completion");
                 OtpResponse otpResponse = otpService.verifyOtp(otpRequest);
 
                 if (!otpResponse.getSuccess()) {
                     log.warn("OTP verification failed during signup: {}", otpResponse.getMessage());
                     throw new AuthenticationException("OTP verification failed: " + otpResponse.getMessage());
                 }
+                
+                log.info("OTP verified successfully, proceeding with user creation");
             } else {
                 log.warn("No OTP provided for signup, proceeding anyway due to email service issues");
             }
@@ -166,11 +212,13 @@ public OtpResponse sendSignupOtp(String email) {
             log.debug("Saving new user with email: {}", user.getEmail());
             User savedUser = userRepository.save(user);
 
+            // Send welcome email asynchronously (non-blocking)
             try {
                 emailService.sendWelcomeEmail(savedUser.getEmail(), savedUser.getName());
                 log.info("Welcome email sent to: {}", savedUser.getEmail());
             } catch (Exception e) {
                 log.error("Failed to send welcome email to: {}", savedUser.getEmail(), e);
+                // Don't fail the signup if welcome email fails
             }
 
             String jwt = tokenProvider.generateTokenFromEmail(savedUser.getEmail());
@@ -242,6 +290,7 @@ public OtpResponse sendSignupOtp(String email) {
             String normalizedEmail = email.toLowerCase().trim();
 
             if (!userRepository.existsByEmail(normalizedEmail)) {
+                // Return success message even if user doesn't exist (security best practice)
                 return OtpResponse.builder()
                         .success(true)
                         .message("If this email is registered, you will receive a reset code shortly.")
@@ -253,14 +302,35 @@ public OtpResponse sendSignupOtp(String email) {
                     .type("PASSWORD_RESET")
                     .build();
 
-            OtpResponse response = otpService.sendOtp(request);
-
-            if (!response.getSuccess() && response.getMessage() != null &&
-                    response.getMessage().contains("Failed to send")) {
-                log.warn("Email sending failed for password reset: {}", normalizedEmail);
+            OtpResponse response;
+            try {
+                response = otpService.sendOtp(request);
+            } catch (Exception e) {
+                log.error("Exception while sending password reset OTP: {}", e.getMessage(), e);
+                
+                // Check for timeout
+                if (e instanceof TimeoutException || 
+                    (e.getMessage() != null && e.getMessage().toLowerCase().contains("timeout"))) {
+                    return OtpResponse.builder()
+                            .success(false)
+                            .message("Email sending timeout. Please try again in a moment.")
+                            .build();
+                }
+                
                 return OtpResponse.builder()
                         .success(true)
-                        .message("Email service temporarily unavailable. Please try again later.")
+                        .message("If this email is registered, you will receive a reset code shortly.")
+                        .build();
+            }
+
+            // Handle timeout in response
+            if (!response.getSuccess() && response.getMessage() != null &&
+                    (response.getMessage().toLowerCase().contains("timeout") ||
+                     response.getMessage().contains("Failed to send"))) {
+                log.warn("Email sending failed for password reset: {}", normalizedEmail);
+                return OtpResponse.builder()
+                        .success(false)
+                        .message("Email service temporarily unavailable. Please try again in a moment.")
                         .build();
             }
 
@@ -281,20 +351,37 @@ public OtpResponse sendSignupOtp(String email) {
 
         try {
             String normalizedEmail = email.toLowerCase().trim();
+            String normalizedOtp = otp.trim();
+            
+            // Enhanced debug logging
+            log.debug("Normalized email: {}", normalizedEmail);
+            log.debug("OTP length: {}", normalizedOtp.length());
+            log.debug("OTP value: {}", normalizedOtp);
 
             User user = userRepository.findByEmail(normalizedEmail)
-                    .orElseThrow(() -> new AuthenticationException("User not found"));
+                    .orElseThrow(() -> {
+                        log.error("User not found for email: {}", normalizedEmail);
+                        return new AuthenticationException("User not found");
+                    });
 
             VerifyOtpRequest otpRequest = VerifyOtpRequest.builder()
                     .email(normalizedEmail)
-                    .otp(otp.trim())
+                    .otp(normalizedOtp)
                     .type("PASSWORD_RESET")
                     .build();
 
+            log.debug("Calling OTP service with request: email={}, type={}", 
+                      normalizedEmail, otpRequest.getType());
+
             OtpResponse otpResponse = otpService.verifyOtpWithoutConsuming(otpRequest);
+
+            log.debug("OTP service response: success={}, message={}", 
+                      otpResponse.getSuccess(), otpResponse.getMessage());
 
             if (otpResponse.getSuccess()) {
                 log.info("Password reset OTP verified successfully for user: {}", normalizedEmail);
+            } else {
+                log.warn("Password reset OTP verification failed: {}", otpResponse.getMessage());
             }
 
             return otpResponse;
@@ -327,6 +414,7 @@ public OtpResponse sendSignupOtp(String email) {
                     .type("PASSWORD_RESET")
                     .build();
 
+            log.debug("Verifying OTP for password reset");
             OtpResponse otpResponse = otpService.verifyOtp(otpRequest);
 
             if (!otpResponse.getSuccess()) {
@@ -336,11 +424,13 @@ public OtpResponse sendSignupOtp(String email) {
             user.setPassword(passwordEncoder.encode(request.getNewPassword()));
             userRepository.save(user);
 
+            // Send confirmation email asynchronously
             try {
                 emailService.sendPasswordResetConfirmationEmail(user.getEmail());
                 log.info("Password reset confirmation email sent to: {}", user.getEmail());
             } catch (Exception e) {
                 log.error("Failed to send password reset confirmation email", e);
+                // Don't fail password reset if confirmation email fails
             }
 
             log.info("Password reset successful for user: {}", user.getEmail());
@@ -398,11 +488,16 @@ public OtpResponse sendSignupOtp(String email) {
 
     @Override
     public OtpResponse verifyOtp(VerifyOtpRequest request) {
+        log.debug("verifyOtp called with type: {}, email: {}", 
+                  request.getType(), request.getEmail());
+        
         if ("SIGNUP_VERIFICATION".equals(request.getType())) {
             return verifySignupOtp(request.getEmail(), request.getOtp());
         } else if ("PASSWORD_RESET".equals(request.getType())) {
             return verifyPasswordResetOtp(request.getEmail(), request.getOtp());
         } else {
+            // For any other type, delegate to OTP service
+            log.debug("Delegating to otpService for type: {}", request.getType());
             return otpService.verifyOtp(request);
         }
     }
