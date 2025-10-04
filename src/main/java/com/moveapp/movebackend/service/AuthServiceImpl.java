@@ -33,31 +33,57 @@ public class AuthServiceImpl implements AuthService {
     private final OTPService otpService;
     private final EmailService emailService;
 
-    @Override
-    public OtpResponse sendSignupOtp(String email) {
-        log.info("Sending signup OTP to email: {}", email);
+  @Override
+public OtpResponse sendSignupOtp(String email) {
+    log.info("Sending signup OTP to email: {}", email);
 
+    try {
         String normalizedEmail = email.toLowerCase().trim();
 
+        // Check if email already exists
         if (userRepository.existsByEmail(normalizedEmail)) {
+            log.warn("Signup OTP request for existing email: {}", normalizedEmail);
             return OtpResponse.builder()
                     .success(false)
                     .message("Email address already registered.")
                     .build();
         }
 
-        // TEMPORARILY SKIP EMAIL - Return success immediately
-        String mockOtp = "123456"; // Use this OTP for testing
-        log.warn("EMAIL DISABLED - Use OTP: {}", mockOtp);
-
-        return OtpResponse.builder()
-                .success(true)
-                .message("OTP generated (email disabled). Use: 123456")
-                .expiresInMinutes(5L)
+        // Create OTP request
+        SendOtpRequest request = SendOtpRequest.builder()
                 .email(normalizedEmail)
                 .type("SIGNUP_VERIFICATION")
                 .build();
+
+        // Send OTP via OTP service
+        OtpResponse response = otpService.sendOtp(request);
+
+        // Handle email sending failures gracefully
+        if (!response.getSuccess() && response.getMessage() != null &&
+                response.getMessage().contains("Failed to send")) {
+            log.warn("Email sending failed for signup: {}", normalizedEmail);
+            return OtpResponse.builder()
+                    .success(false)
+                    .message("Failed to send verification email. Please check your email address and try again.")
+                    .build();
+        }
+
+        if (response.getSuccess()) {
+            log.info("Signup OTP sent successfully to: {}", normalizedEmail);
+        } else {
+            log.warn("Signup OTP failed for: {} - {}", normalizedEmail, response.getMessage());
+        }
+
+        return response;
+
+    } catch (Exception e) {
+        log.error("Error sending signup OTP to: {}", email, e);
+        return OtpResponse.builder()
+                .success(false)
+                .message("Failed to send OTP. Please try again.")
+                .build();
     }
+}
 
     @Override
     public OtpResponse verifySignupOtp(String email, String otp) {
