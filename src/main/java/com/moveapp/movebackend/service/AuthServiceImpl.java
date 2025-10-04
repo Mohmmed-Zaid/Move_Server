@@ -33,6 +33,7 @@ public class AuthServiceImpl implements AuthService {
     private final OTPService otpService;
     private final EmailService emailService;
 
+<<<<<<< HEAD
     /**
      * Send OTP for signup verification with email fallback
      */
@@ -91,9 +92,97 @@ public class AuthServiceImpl implements AuthService {
                     .type("SIGNUP_VERIFICATION")
                     .build();
         }
+=======
+    @Override
+public OtpResponse sendSignupOtp(String email) {
+    log.info("Sending signup OTP to email: {}", email);
+    
+    String normalizedEmail = email.toLowerCase().trim();
+    
+    if (userRepository.existsByEmail(normalizedEmail)) {
+        return OtpResponse.builder()
+                .success(false)
+                .message("Email address already registered.")
+                .build();
+>>>>>>> a2e830cc2d3d059933e3f0ed724b114b31f1ce2f
     }
 
+    // TEMPORARILY SKIP EMAIL - Return success immediately
+    String mockOtp = "123456"; // Use this OTP for testing
+    log.warn("EMAIL DISABLED - Use OTP: {}", mockOtp);
+    
+    return OtpResponse.builder()
+            .success(true)
+            .message("OTP generated (email disabled). Use: 123456")
+            .expiresInMinutes(5L)
+            .email(normalizedEmail)
+            .type("SIGNUP_VERIFICATION")
+            .build();
+}
     /**
+<<<<<<< HEAD
+=======
+     * Send OTP for signup verification with email fallback
+     */
+    // @Override
+    // public OtpResponse sendSignupOtp(String email) {
+    //     log.info("Sending signup OTP to email: {}", email);
+
+    //     try {
+    //         String normalizedEmail = email.toLowerCase().trim();
+
+    //         // Check if user already exists
+    //         if (userRepository.existsByEmail(normalizedEmail)) {
+    //             log.warn("Signup OTP requested for existing email: {}", normalizedEmail);
+    //             return OtpResponse.builder()
+    //                     .success(false)
+    //                     .message("Email address already registered. Please login instead.")
+    //                     .build();
+    //         }
+
+    //         SendOtpRequest request = SendOtpRequest.builder()
+    //                 .email(normalizedEmail)
+    //                 .type("SIGNUP_VERIFICATION")
+    //                 .build();
+
+    //         // Try to send OTP via email service
+    //         OtpResponse response = otpService.sendOtp(request);
+
+    //         // If email sending fails, still allow signup but log warning
+    //         if (!response.getSuccess() && response.getMessage() != null &&
+    //                 response.getMessage().contains("Failed to send OTP email")) {
+
+    //             log.warn("Email sending failed but allowing signup for: {}", normalizedEmail);
+
+    //             // For development/testing: Allow signup without email verification
+    //             // In production, you should handle this differently
+    //             return OtpResponse.builder()
+    //                     .success(true)
+    //                     .message("Email service temporarily unavailable. You can proceed with signup, but please verify your email later.")
+    //                     .expiresInMinutes(5L)
+    //                     .email(normalizedEmail)
+    //                     .type("SIGNUP_VERIFICATION")
+    //                     .build();
+    //         }
+
+    //         return response;
+
+    //     } catch (Exception e) {
+    //         log.error("Error sending signup OTP to: {}", email, e);
+
+    //         // Allow signup even if email fails (for Render free tier limitations)
+    //         return OtpResponse.builder()
+    //                 .success(true)
+    //                 .message("Email verification temporarily unavailable. You can proceed with signup.")
+    //                 .expiresInMinutes(5L)
+    //                 .email(email.toLowerCase().trim())
+    //                 .type("SIGNUP_VERIFICATION")
+    //                 .build();
+    //     }
+    // }
+
+    /**
+>>>>>>> a2e830cc2d3d059933e3f0ed724b114b31f1ce2f
      * Verify signup OTP - with fallback for email issues
      */
     @Override

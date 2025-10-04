@@ -22,4 +22,8 @@ public class AsyncConfig {
         executor.initialize();
         return executor;
     }
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> a2e830cc2d3d059933e3f0ed724b114b31f1ce2f

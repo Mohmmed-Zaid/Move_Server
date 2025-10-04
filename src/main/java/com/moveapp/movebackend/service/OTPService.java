@@ -16,6 +16,10 @@ import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.ExecutionException;
 
 @Service
 @RequiredArgsConstructor
@@ -78,12 +82,44 @@ public class OTPService {
             otp = otpRepository.save(otp);
             log.info("OTP created with ID: {} for email: {}", otp.getId(), email);
 
-            // Send OTP via email
+            // Send OTP via email with timeout
             try {
-                emailService.sendOtpEmail(email, otpCode, otpType);
-                log.info("OTP email sent successfully to: {}", email);
-            } catch (Exception emailError) {
-                log.error("Failed to send OTP email to {}: {}", email, emailError.getMessage());
+                CompletableFuture<Boolean> emailFuture = emailService.sendOtpEmailAsync(email, otpCode, otpType);
+                Boolean emailSent = emailFuture.get(15, TimeUnit.SECONDS); // 5 second timeout
+                
+                if (!emailSent) {
+                    log.warn("Email sending failed for: {}", email);
+                    otp.setUsed(true);
+                    otpRepository.save(otp);
+
+                    return OtpResponse.builder()
+                            .success(false)
+                            .message("Failed to send OTP email. Please try again.")
+                            .build();
+                } else {
+                    log.info("OTP email sent successfully to: {}", email);
+                }
+            } catch (TimeoutException e) {
+                log.error("Email sending timeout for {}: {}", email, e.getMessage());
+                otp.setUsed(true);
+                otpRepository.save(otp);
+
+                return OtpResponse.builder()
+                        .success(false)
+                        .message("Email sending timeout. Please try again.")
+                        .build();
+            } catch (InterruptedException e) {
+                log.error("Email sending interrupted for {}: {}", email, e.getMessage());
+                Thread.currentThread().interrupt(); // Restore interrupt status
+                otp.setUsed(true);
+                otpRepository.save(otp);
+
+                return OtpResponse.builder()
+                        .success(false)
+                        .message("Failed to send OTP email. Please try again.")
+                        .build();
+            } catch (ExecutionException e) {
+                log.error("Failed to send OTP email to {}: {}", email, e.getMessage());
                 otp.setUsed(true);
                 otpRepository.save(otp);
 
