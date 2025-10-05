@@ -151,28 +151,25 @@ public class OTPService {
         }
     }
 
-    /**
-     * Verifies OTP WITHOUT consuming it (for preview/check before final action)
-     */
-    public OtpResponse verifyOtpWithoutConsuming(VerifyOtpRequest request) {
+      public OtpResponse verifyOtpWithoutConsuming(VerifyOtpRequest request) {
         log.info("Verifying OTP without consuming for email: {} and type: {}", 
                  request.getEmail(), request.getType());
 
         try {
-            String normalizedEmail = request.getEmail().toLowerCase().trim();
-            String normalizedOtp = request.getOtp().trim();
-            OTPType otpType = OTPType.valueOf(request.getType());
+            String normalizedEmail = validateAndNormalizeEmail(request.getEmail());
+            String normalizedOtp = request.getOtp().trim().replaceAll("\\s+", "");
+            OTPType otpType = parseOtpType(request.getType());
 
-            log.debug("Looking for OTP - Email: {}, Type: {}, OTP: {}", 
-                     normalizedEmail, otpType, normalizedOtp);
+            log.debug("Looking for OTP - Email: {}, Type: {}, OTP length: {}", 
+                     normalizedEmail, otpType, normalizedOtp.length());
 
-            // Find active OTP
+            // Find the most recent active OTP
             Optional<OTP> otpOpt = otpRepository.findByEmailAndTypeAndUsedFalse(
                     normalizedEmail, otpType);
 
             if (otpOpt.isEmpty()) {
                 log.warn("No valid OTP found for email: {} and type: {}", 
-                        normalizedEmail, request.getType());
+                        normalizedEmail, otpType);
                 return OtpResponse.builder()
                         .success(false)
                         .message("Invalid or expired OTP. Please request a new one.")
@@ -182,14 +179,15 @@ public class OTPService {
 
             OTP otp = otpOpt.get();
             
-            log.info("Found OTP - ID: {}, Code: {}, Expiry: {}, Attempts: {}/{}", 
-                    otp.getId(), otp.getOtpCode(), otp.getExpiryTime(), 
+            // Enhanced logging for debugging
+            log.info("Found OTP - ID: {}, Stored Code: '{}', Input Code: '{}', Expiry: {}, Attempts: {}/{}", 
+                    otp.getId(), otp.getOtpCode(), normalizedOtp, otp.getExpiryTime(), 
                     otp.getAttempts(), maxAttempts);
 
             // Check if OTP is expired
             if (otp.getExpiryTime().isBefore(LocalDateTime.now())) {
-                log.warn("Expired OTP for email: {} and type: {}", 
-                        normalizedEmail, request.getType());
+                log.warn("Expired OTP for email: {} - Expiry: {}, Current: {}", 
+                        normalizedEmail, otp.getExpiryTime(), LocalDateTime.now());
                 otp.setUsed(true);
                 otpRepository.save(otp);
 
@@ -200,16 +198,22 @@ public class OTPService {
                         .build();
             }
 
-            // Verify OTP code
-            if (!otp.getOtpCode().equals(normalizedOtp)) {
+            // Verify OTP code - CRITICAL FIX: ensure exact comparison
+            String storedOtp = otp.getOtpCode().trim();
+            boolean otpMatches = storedOtp.equals(normalizedOtp);
+            
+            log.debug("OTP Comparison - Stored: '{}' (len: {}), Input: '{}' (len: {}), Match: {}", 
+                     storedOtp, storedOtp.length(), normalizedOtp, normalizedOtp.length(), otpMatches);
+
+            if (!otpMatches) {
                 int currentAttempts = otp.getAttempts() != null ? otp.getAttempts() : 0;
                 int newAttempts = currentAttempts + 1;
                 int remainingAttempts = Math.max(0, maxAttempts - newAttempts);
 
                 otp.setAttempts(newAttempts);
 
-                log.warn("Invalid OTP for email: {}. Expected: {}, Got: {}. Attempt: {}/{}", 
-                        normalizedEmail, otp.getOtpCode(), normalizedOtp, newAttempts, maxAttempts);
+                log.warn("Invalid OTP for email: {}. Expected: '{}', Got: '{}'. Attempt: {}/{}", 
+                        normalizedEmail, storedOtp, normalizedOtp, newAttempts, maxAttempts);
 
                 // If max attempts reached, mark as used
                 if (newAttempts >= maxAttempts) {
@@ -253,17 +257,14 @@ public class OTPService {
         }
     }
 
-    /**
-     * Verifies OTP AND consumes it (marks as used)
-     */
-    public OtpResponse verifyOtp(VerifyOtpRequest request) {
+     public OtpResponse verifyOtp(VerifyOtpRequest request) {
         log.info("Verifying and consuming OTP for email: {} and type: {}", 
                  request.getEmail(), request.getType());
 
         try {
-            String normalizedEmail = request.getEmail().toLowerCase().trim();
-            String normalizedOtp = request.getOtp().trim();
-            OTPType otpType = OTPType.valueOf(request.getType());
+            String normalizedEmail = validateAndNormalizeEmail(request.getEmail());
+            String normalizedOtp = request.getOtp().trim().replaceAll("\\s+", "");
+            OTPType otpType = parseOtpType(request.getType());
 
             log.debug("Looking for OTP to consume - Email: {}, Type: {}, OTP: {}", 
                      normalizedEmail, otpType, normalizedOtp);
@@ -283,7 +284,7 @@ public class OTPService {
 
             OTP otp = otpOpt.get();
 
-            log.info("Found OTP to consume - ID: {}, Code: {}, Expiry: {}", 
+            log.info("Found OTP to consume - ID: {}, Code: '{}', Expiry: {}", 
                     otp.getId(), otp.getOtpCode(), otp.getExpiryTime());
 
             // Check if OTP is expired
@@ -300,15 +301,18 @@ public class OTPService {
             }
 
             // Verify OTP code
-            if (!otp.getOtpCode().equals(normalizedOtp)) {
+            String storedOtp = otp.getOtpCode().trim();
+            boolean otpMatches = storedOtp.equals(normalizedOtp);
+            
+            if (!otpMatches) {
                 int currentAttempts = otp.getAttempts() != null ? otp.getAttempts() : 0;
                 int newAttempts = currentAttempts + 1;
                 int remainingAttempts = Math.max(0, maxAttempts - newAttempts);
 
                 otp.setAttempts(newAttempts);
 
-                log.warn("Invalid OTP for email: {}. Expected: {}, Got: {}. Attempt: {}/{}", 
-                        normalizedEmail, otp.getOtpCode(), normalizedOtp, newAttempts, maxAttempts);
+                log.warn("Invalid OTP for email: {}. Expected: '{}', Got: '{}'. Attempt: {}/{}", 
+                        normalizedEmail, storedOtp, normalizedOtp, newAttempts, maxAttempts);
 
                 if (newAttempts >= maxAttempts) {
                     otp.setUsed(true);
@@ -450,7 +454,7 @@ public class OTPService {
 
     // ===== RATE LIMITING METHODS =====
 
-    private boolean isRateLimited(String email, OTPType otpType) {
+   private boolean isRateLimited(String email, OTPType otpType) {
         try {
             LocalDateTime timeThreshold = LocalDateTime.now().minusMinutes(RATE_LIMIT_MINUTES);
             Long recentOtpCount = otpRepository.countRecentOtpsByEmailAndType(email, otpType, timeThreshold);
@@ -468,7 +472,7 @@ public class OTPService {
         }
     }
 
-    private Long getNextAllowedTime(String email, OTPType otpType) {
+ private Long getNextAllowedTime(String email, OTPType otpType) {
         try {
             LocalDateTime timeThreshold = LocalDateTime.now().minusMinutes(RATE_LIMIT_MINUTES);
             LocalDateTime oldestRecentOtp = otpRepository.findOldestRecentOtpTime(email, otpType, timeThreshold);
@@ -483,9 +487,9 @@ public class OTPService {
         return null;
     }
 
-    // ===== INTERNAL UTILITY METHODS =====
 
-    private void invalidateActiveOtps(String email, OTPType otpType) {
+    // ===== INTERNAL UTILITY METHODS =====
+private void invalidateActiveOtps(String email, OTPType otpType) {
         try {
             int invalidatedCount = 0;
             var activeOtps = otpRepository.findByEmailAndType(email, otpType);
@@ -507,7 +511,7 @@ public class OTPService {
         }
     }
 
-    private String generateOtpCode() {
+       private String generateOtpCode() {
         StringBuilder otp = new StringBuilder();
         for (int i = 0; i < otpLength; i++) {
             otp.append(secureRandom.nextInt(10));
@@ -517,7 +521,7 @@ public class OTPService {
 
     // ===== VALIDATION METHODS =====
 
-    private String validateAndNormalizeEmail(String email) {
+  private String validateAndNormalizeEmail(String email) {
         if (!StringUtils.hasText(email)) {
             throw new IllegalArgumentException("Email cannot be null or empty");
         }
@@ -564,7 +568,7 @@ public class OTPService {
 
     // ===== CLEANUP METHODS =====
 
-    @Scheduled(fixedRate = 600000) // Every 10 minutes
+   @Scheduled(fixedRate = 600000)
     public void cleanupExpiredOtps() {
         try {
             LocalDateTime currentTime = LocalDateTime.now();
