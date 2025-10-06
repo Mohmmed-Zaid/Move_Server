@@ -302,6 +302,63 @@ public class OTPService {
         }
     }
 
+    // ===== VERIFY OTP FOR SIGNUP (READ-ONLY) =====
+    /**
+     * Verify OTP for signup WITHOUT consuming it
+     * This allows checking if OTP is valid before actually creating the account
+     */
+    public OtpResponse verifyOtpForSignup(VerifyOtpRequest request) {
+        log.info("=== VERIFY SIGNUP OTP (READ-ONLY) ===");
+        return verifyOtpWithoutConsuming(request);
+    }
+
+    // ===== VERIFY AND CONSUME OTP =====
+    /**
+     * Convenience method that verifies and immediately consumes
+     * Used by AuthService after account creation
+     */
+    public OtpResponse verifyAndConsumeOtp(VerifyOtpRequest request) {
+        log.info("=== VERIFY AND CONSUME OTP (EXPLICIT) ===");
+        return verifyOtp(request);
+    }
+
+    // ===== GET OTP STATUS =====
+    public OtpStatusResponse getOtpStatus(String email) {
+        try {
+            String normalizedEmail = validateAndNormalizeEmail(email);
+            
+            // Check for any active OTP
+            Optional<OTP> activeOtp = otpRepository.findByEmailAndTypeAndUsedFalse(
+                    normalizedEmail, OTPType.SIGNUP_VERIFICATION);
+            
+            if (activeOtp.isPresent() && activeOtp.get().getExpiryTime().isAfter(LocalDateTime.now())) {
+                OTP otp = activeOtp.get();
+                int currentAttempts = otp.getAttempts() != null ? otp.getAttempts() : 0;
+                int remaining = Math.max(0, maxAttempts - currentAttempts);
+                
+                return OtpStatusResponse.builder()
+                        .email(normalizedEmail)
+                        .hasActiveOtp(true)
+                        .attemptsRemaining(remaining)
+                        .build();
+            }
+            
+            return OtpStatusResponse.builder()
+                    .email(normalizedEmail)
+                    .hasActiveOtp(false)
+                    .attemptsRemaining(0)
+                    .build();
+                    
+        } catch (Exception e) {
+            log.error("Error getting OTP status: {}", e.getMessage());
+            return OtpStatusResponse.builder()
+                    .email(email)
+                    .hasActiveOtp(false)
+                    .attemptsRemaining(0)
+                    .build();
+        }
+    }
+
     // ===== HELPER METHODS =====
 
     private String cleanOtpInput(String otp) {
@@ -402,6 +459,7 @@ public class OTPService {
         }
     }
 
+    // ===== INNER CLASS =====
     @lombok.Data
     @lombok.Builder
     @lombok.NoArgsConstructor
