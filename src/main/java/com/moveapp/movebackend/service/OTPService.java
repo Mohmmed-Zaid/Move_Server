@@ -39,6 +39,10 @@ public class OTPService {
     @Value("${move.otp.max-attempts:3}")
     private Integer maxAttempts;
 
+    // BYPASS VALIDATION MODE - ACCEPTS ANY 6-DIGIT NUMBER
+    @Value("${move.otp.bypass-validation:false}")
+    private Boolean bypassValidation;
+
     private static final Integer MAX_OTPS_PER_PERIOD = 5;
     private static final Integer RATE_LIMIT_MINUTES = 15;
 
@@ -49,7 +53,11 @@ public class OTPService {
             OTPType otpType = parseOtpType(request.getType());
 
             log.info("=== SEND OTP ===");
-            log.info("Email: {}, Type: {}", email, otpType);
+            log.info("Email: {}, Type: {}, Bypass Validation: {}", email, otpType, bypassValidation);
+
+            if (bypassValidation) {
+                log.warn("⚠️ OTP BYPASS MODE ACTIVE - ANY 6-DIGIT NUMBER WILL BE ACCEPTED");
+            }
 
             if (isRateLimited(email, otpType)) {
                 log.warn("Rate limit exceeded for: {}", email);
@@ -110,9 +118,13 @@ public class OTPService {
                         .build();
             }
 
+            String responseMessage = bypassValidation 
+                ? "OTP sent successfully. (Bypass mode: Any 6-digit number will work)"
+                : "OTP sent successfully to your email";
+
             return OtpResponse.builder()
                     .success(true)
-                    .message("OTP sent successfully to your email")
+                    .message(responseMessage)
                     .expiresInMinutes((long) otpExpirationMinutes)
                     .email(email)
                     .type(otpType.name())
@@ -136,9 +148,28 @@ public class OTPService {
             String cleanOtp = cleanOtpInput(request.getOtp());
             OTPType otpType = parseOtpType(request.getType());
 
-            log.info("Email: '{}', Input OTP: '{}' (len: {}), Type: {}", 
-                     normalizedEmail, cleanOtp, cleanOtp.length(), otpType);
+            log.info("Email: '{}', Input OTP: '{}' (len: {}), Type: {}, Bypass: {}", 
+                     normalizedEmail, cleanOtp, cleanOtp.length(), otpType, bypassValidation);
 
+            // BYPASS MODE: Accept any 6-digit number
+            if (bypassValidation) {
+                if (cleanOtp.length() == 6 && cleanOtp.matches("\\d{6}")) {
+                    log.warn("⚠️ BYPASS MODE - Accepting OTP: '{}'", cleanOtp);
+                    return OtpResponse.builder()
+                            .success(true)
+                            .message("OTP verified successfully (bypass mode)")
+                            .remainingAttempts(maxAttempts)
+                            .build();
+                } else {
+                    return OtpResponse.builder()
+                            .success(false)
+                            .message("Please enter exactly 6 digits")
+                            .remainingAttempts(maxAttempts)
+                            .build();
+                }
+            }
+
+            // Regular OTP verification
             Optional<OTP> otpOpt = otpRepository.findByEmailAndTypeAndUsedFalse(
                     normalizedEmail, otpType);
 
@@ -227,8 +258,38 @@ public class OTPService {
             String cleanOtp = cleanOtpInput(request.getOtp());
             OTPType otpType = parseOtpType(request.getType());
 
-            log.info("Email: '{}', OTP: '{}'", normalizedEmail, cleanOtp);
+            log.info("Email: '{}', OTP: '{}', Bypass: {}", normalizedEmail, cleanOtp, bypassValidation);
 
+            // BYPASS MODE: Accept any 6-digit number and consume any existing OTP
+            if (bypassValidation) {
+                if (cleanOtp.length() == 6 && cleanOtp.matches("\\d{6}")) {
+                    log.warn("⚠️ BYPASS MODE - Accepting and consuming OTP: '{}'", cleanOtp);
+                    
+                    // Mark any existing OTP as used
+                    Optional<OTP> existingOtp = otpRepository.findByEmailAndTypeAndUsedFalse(
+                            normalizedEmail, otpType);
+                    if (existingOtp.isPresent()) {
+                        OTP otp = existingOtp.get();
+                        otp.setUsed(true);
+                        otpRepository.save(otp);
+                        log.info("Consumed existing OTP ID: {}", otp.getId());
+                    }
+                    
+                    return OtpResponse.builder()
+                            .success(true)
+                            .message("OTP verified successfully (bypass mode)")
+                            .remainingAttempts(0)
+                            .build();
+                } else {
+                    return OtpResponse.builder()
+                            .success(false)
+                            .message("Please enter exactly 6 digits")
+                            .remainingAttempts(0)
+                            .build();
+                }
+            }
+
+            // Regular OTP verification
             Optional<OTP> otpOpt = otpRepository.findByEmailAndTypeAndUsedFalse(
                     normalizedEmail, otpType);
 
@@ -303,20 +364,12 @@ public class OTPService {
     }
 
     // ===== VERIFY OTP FOR SIGNUP (READ-ONLY) =====
-    /**
-     * Verify OTP for signup WITHOUT consuming it
-     * This allows checking if OTP is valid before actually creating the account
-     */
     public OtpResponse verifyOtpForSignup(VerifyOtpRequest request) {
         log.info("=== VERIFY SIGNUP OTP (READ-ONLY) ===");
         return verifyOtpWithoutConsuming(request);
     }
 
     // ===== VERIFY AND CONSUME OTP =====
-    /**
-     * Convenience method that verifies and immediately consumes
-     * Used by AuthService after account creation
-     */
     public OtpResponse verifyAndConsumeOtp(VerifyOtpRequest request) {
         log.info("=== VERIFY AND CONSUME OTP (EXPLICIT) ===");
         return verifyOtp(request);
@@ -326,6 +379,15 @@ public class OTPService {
     public OtpStatusResponse getOtpStatus(String email) {
         try {
             String normalizedEmail = validateAndNormalizeEmail(email);
+            
+            // In bypass mode, always show as having OTP available
+            if (bypassValidation) {
+                return OtpStatusResponse.builder()
+                        .email(normalizedEmail)
+                        .hasActiveOtp(true)
+                        .attemptsRemaining(maxAttempts)
+                        .build();
+            }
             
             // Check for any active OTP
             Optional<OTP> activeOtp = otpRepository.findByEmailAndTypeAndUsedFalse(
@@ -363,7 +425,6 @@ public class OTPService {
 
     private String cleanOtpInput(String otp) {
         if (otp == null) return "";
-        // Remove ALL whitespace and non-digit characters
         return otp.replaceAll("\\s+", "")
                   .replaceAll("[^0-9]", "")
                   .trim();
