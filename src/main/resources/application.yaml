@@ -1,6 +1,5 @@
 server:
   port: 8080
-
 spring:
   application:
     name: move-backend
@@ -41,7 +40,6 @@ spring:
     multipart:
       max-file-size: 10MB
       max-request-size: 10MB
-
 # SendGrid Configuration
 sendgrid:
   api:
@@ -49,7 +47,6 @@ sendgrid:
   from:
     email: 4squaredevs@gmail.com
     name: MapGuide
-
 # CORS Configuration
 cors:
   allowed-origins:
@@ -62,7 +59,6 @@ cors:
   allowed-headers: ["*"]
   allow-credentials: true
   max-age: 3600
-
 move:
   app:
     name: MapGuide
@@ -77,6 +73,7 @@ move:
     length: 6
     max-attempts: 3
     cleanup-interval-minutes: 10
+    bypass-validation: true  # ADD THIS - Set to true to accept any 6-digit OTP
   external:
     geocoding:
       maptiler:
@@ -113,7 +110,6 @@ move:
     jwt:
       header: Authorization
       prefix: Bearer
-
 logging:
   level:
     root: INFO
@@ -126,7 +122,6 @@ logging:
     org.hibernate.engine.jdbc.spi.SqlExceptionHelper: ERROR
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
-
 management:
   endpoints:
     web:
