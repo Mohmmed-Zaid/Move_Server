@@ -33,6 +33,61 @@ public class AuthServiceImpl implements AuthService {
     private final EmailService emailService;
 
     @Override
+    public AuthResponse signup(SignupRequest signupRequest) {
+        log.info("=== DIRECT SIGNUP (NO OTP) ===");
+        log.info("Email: {}", signupRequest.getEmail());
+
+        try {
+            String normalizedEmail = signupRequest.getEmail().toLowerCase().trim();
+
+            // Check if email already exists
+            if (userRepository.existsByEmail(normalizedEmail)) {
+                log.warn("Email already exists: {}", normalizedEmail);
+                throw new AuthenticationException("Email address already in use.");
+            }
+
+            log.info("Creating user account...");
+
+            // Create user directly
+            User user = User.builder()
+                    .name(signupRequest.getName().trim())
+                    .email(normalizedEmail)
+                    .password(passwordEncoder.encode(signupRequest.getPassword()))
+                    .authProvider(AuthProvider.LOCAL)
+                    .emailVerified(false) // Set to false since no OTP verification
+                    .build();
+
+            User savedUser = userRepository.save(user);
+            log.info("✓ User created successfully - ID: {}, Email: {}", 
+                     savedUser.getId(), savedUser.getEmail());
+
+            // Send welcome email (non-blocking)
+            try {
+                emailService.sendWelcomeEmail(savedUser.getEmail(), savedUser.getName());
+            } catch (Exception e) {
+                log.error("Failed to send welcome email (non-critical): {}", e.getMessage());
+            }
+
+            // Generate JWT
+            String jwt = tokenProvider.generateTokenFromEmail(savedUser.getEmail());
+
+            return AuthResponse.builder()
+                    .accessToken(jwt)
+                    .tokenType("Bearer")
+                    .expiresIn(86400L)
+                    .user(convertToUserDto(savedUser))
+                    .build();
+
+        } catch (AuthenticationException e) {
+            log.error("Authentication error during signup: {}", e.getMessage());
+            throw e;
+        } catch (Exception e) {
+            log.error("Unexpected error during signup: {}", e.getMessage(), e);
+            throw new AuthenticationException("Signup failed: " + e.getMessage());
+        }
+    }
+
+    @Override
     public OtpResponse sendSignupOtp(String email) {
         log.info("=== SEND SIGNUP OTP ===");
         log.info("Email: {}", email);
@@ -107,85 +162,85 @@ public class AuthServiceImpl implements AuthService {
         }
     }
 
-   @Override
-public AuthResponse signupWithOtp(SignupWithOtpRequest request) {
-    log.info("=== SIGNUP WITH OTP ===");
-    log.info("Email: {}", request.getEmail());
+    @Override
+    public AuthResponse signupWithOtp(SignupWithOtpRequest request) {
+        log.info("=== SIGNUP WITH OTP ===");
+        log.info("Email: {}", request.getEmail());
 
-    try {
-        String normalizedEmail = request.getEmail().toLowerCase().trim();
-        String cleanOtp = request.getOtp().trim().replaceAll("\\s+", "");
-
-        log.info("Processing signup - Email: '{}', OTP: '{}' (length: {})", 
-                 normalizedEmail, cleanOtp, cleanOtp.length());
-
-        // Check if email already exists
-        if (userRepository.existsByEmail(normalizedEmail)) {
-            log.warn("Email already exists: {}", normalizedEmail);
-            throw new AuthenticationException("Email address already in use.");
-        }
-
-        // ONLY verify the OTP - DO NOT CONSUME IT YET
-        VerifyOtpRequest otpRequest = VerifyOtpRequest.builder()
-                .email(normalizedEmail)
-                .otp(cleanOtp)
-                .type("SIGNUP_VERIFICATION")
-                .build();
-
-        log.info("Verifying OTP before account creation (non-consuming)...");
-        OtpResponse otpResponse = otpService.verifyOtpWithoutConsuming(otpRequest);
-        log.info("OTP verification result: {}, Message: {}", 
-                 otpResponse.getSuccess(), otpResponse.getMessage());
-
-        if (!otpResponse.getSuccess()) {
-            log.warn("OTP verification failed: {}", otpResponse.getMessage());
-            throw new AuthenticationException("OTP verification failed: " + otpResponse.getMessage());
-        }
-
-        log.info("✓ OTP verified successfully, creating user account...");
-
-        // Create user
-        User user = User.builder()
-                .name(request.getName().trim())
-                .email(normalizedEmail)
-                .password(passwordEncoder.encode(request.getPassword()))
-                .authProvider(AuthProvider.LOCAL)
-                .emailVerified(true)
-                .build();
-
-        User savedUser = userRepository.save(user);
-        log.info("✓ User created successfully - ID: {}, Email: {}", 
-                 savedUser.getId(), savedUser.getEmail());
-
-        // NOW consume the OTP after successful account creation
-        log.info("Consuming OTP after successful account creation...");
-        otpService.verifyOtp(otpRequest); // This consumes it
-
-        // Send welcome email (non-blocking)
         try {
-            emailService.sendWelcomeEmail(savedUser.getEmail(), savedUser.getName());
+            String normalizedEmail = request.getEmail().toLowerCase().trim();
+            String cleanOtp = request.getOtp().trim().replaceAll("\\s+", "");
+
+            log.info("Processing signup - Email: '{}', OTP: '{}' (length: {})", 
+                     normalizedEmail, cleanOtp, cleanOtp.length());
+
+            // Check if email already exists
+            if (userRepository.existsByEmail(normalizedEmail)) {
+                log.warn("Email already exists: {}", normalizedEmail);
+                throw new AuthenticationException("Email address already in use.");
+            }
+
+            // Verify the OTP (non-consuming)
+            VerifyOtpRequest otpRequest = VerifyOtpRequest.builder()
+                    .email(normalizedEmail)
+                    .otp(cleanOtp)
+                    .type("SIGNUP_VERIFICATION")
+                    .build();
+
+            log.info("Verifying OTP before account creation (non-consuming)...");
+            OtpResponse otpResponse = otpService.verifyOtpWithoutConsuming(otpRequest);
+            log.info("OTP verification result: {}, Message: {}", 
+                     otpResponse.getSuccess(), otpResponse.getMessage());
+
+            if (!otpResponse.getSuccess()) {
+                log.warn("OTP verification failed: {}", otpResponse.getMessage());
+                throw new AuthenticationException("OTP verification failed: " + otpResponse.getMessage());
+            }
+
+            log.info("✓ OTP verified successfully, creating user account...");
+
+            // Create user
+            User user = User.builder()
+                    .name(request.getName().trim())
+                    .email(normalizedEmail)
+                    .password(passwordEncoder.encode(request.getPassword()))
+                    .authProvider(AuthProvider.LOCAL)
+                    .emailVerified(true)
+                    .build();
+
+            User savedUser = userRepository.save(user);
+            log.info("✓ User created successfully - ID: {}, Email: {}", 
+                     savedUser.getId(), savedUser.getEmail());
+
+            // Consume the OTP after successful account creation
+            log.info("Consuming OTP after successful account creation...");
+            otpService.verifyOtp(otpRequest);
+
+            // Send welcome email (non-blocking)
+            try {
+                emailService.sendWelcomeEmail(savedUser.getEmail(), savedUser.getName());
+            } catch (Exception e) {
+                log.error("Failed to send welcome email (non-critical): {}", e.getMessage());
+            }
+
+            // Generate JWT
+            String jwt = tokenProvider.generateTokenFromEmail(savedUser.getEmail());
+
+            return AuthResponse.builder()
+                    .accessToken(jwt)
+                    .tokenType("Bearer")
+                    .expiresIn(86400L)
+                    .user(convertToUserDto(savedUser))
+                    .build();
+
+        } catch (AuthenticationException e) {
+            log.error("Authentication error during signup: {}", e.getMessage());
+            throw e;
         } catch (Exception e) {
-            log.error("Failed to send welcome email (non-critical): {}", e.getMessage());
+            log.error("Unexpected error during signup: {}", e.getMessage(), e);
+            throw new AuthenticationException("Signup failed: " + e.getMessage());
         }
-
-        // Generate JWT
-        String jwt = tokenProvider.generateTokenFromEmail(savedUser.getEmail());
-
-        return AuthResponse.builder()
-                .accessToken(jwt)
-                .tokenType("Bearer")
-                .expiresIn(86400L)
-                .user(convertToUserDto(savedUser))
-                .build();
-
-    } catch (AuthenticationException e) {
-        log.error("Authentication error during signup: {}", e.getMessage());
-        throw e;
-    } catch (Exception e) {
-        log.error("Unexpected error during signup: {}", e.getMessage(), e);
-        throw new AuthenticationException("Signup failed: " + e.getMessage());
     }
-}
 
     @Override
     public AuthResponse signin(AuthRequest authRequest) {
@@ -238,7 +293,6 @@ public AuthResponse signupWithOtp(SignupWithOtpRequest request) {
             String normalizedEmail = email.toLowerCase().trim();
 
             if (!userRepository.existsByEmail(normalizedEmail)) {
-                // Security: Don't reveal if email exists
                 return OtpResponse.builder()
                         .success(true)
                         .message("If this email is registered, you will receive a reset code.")
@@ -346,12 +400,6 @@ public AuthResponse signupWithOtp(SignupWithOtpRequest request) {
             log.error("Error during password reset: {}", e.getMessage(), e);
             throw new AuthenticationException("Password reset failed: " + e.getMessage());
         }
-    }
-
-    @Override
-    public AuthResponse signup(SignupRequest signupRequest) {
-        // Regular signup without OTP (legacy)
-        throw new AuthenticationException("Please use OTP-based signup");
     }
 
     @Override
